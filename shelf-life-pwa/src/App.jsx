@@ -241,6 +241,25 @@ function matchBooks(answers) {
 
 const topTag = (tagScores) => Object.entries(tagScores).sort((a, b) => b[1] - a[1])[0]?.[0] || "Heartwarming";
 
+// Normalize titles for matching search results against Gutenberg's catalog
+const normTitle = (t) => (t || "").toLowerCase().replace(/[^a-z0-9áéíóúñü ]/g, "").replace(/\s+/g, " ").trim();
+
+// Search Gutenberg's catalog and return a lookup of normalized title -> book id
+async function gutenbergLookup(query) {
+  try {
+    const r = await fetch(`https://gutendex.com/books?search=${encodeURIComponent(query)}`);
+    const d = await r.json();
+    const map = {};
+    for (const b of (d.results || []).slice(0, 20)) {
+      const key = normTitle(b.title);
+      if (key && !map[key]) map[key] = { gid: b.id, title: b.title, author: (b.authors || [])[0]?.name || "" };
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 // ---------- Digital shelf: free public-domain classics (Project Gutenberg) ----------
 const FEATURED_CLASSICS = [
   { gid: 46, title: "A Christmas Carol", author: "Charles Dickens", note: "Short & beloved — a perfect first classic." },
@@ -851,11 +870,15 @@ export default function ShelfLife() {
     if (!q) return;
     setSearching(true);
     try {
-      const r = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=20&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`
-      );
-      const d = await r.json();
-      setSearchResults(d.docs || []);
+      const [ol, guten] = await Promise.all([
+        fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=20&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`).then((r) => r.json()),
+        gutenbergLookup(q),
+      ]);
+      const docs = (ol.docs || []).map((doc) => {
+        const g = guten[normTitle(doc.title)];
+        return g ? { ...doc, gutenId: g.gid, gutenAuthor: g.author } : doc;
+      });
+      setSearchResults(docs);
     } catch {
       flash("Search hiccup — check your connection and try again");
     }
@@ -1158,7 +1181,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v10</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v11</span>
         </p>
       </header>
 
@@ -1527,12 +1550,26 @@ export default function ShelfLife() {
                           <div style={{ fontSize: 12, color: T.inkSoft }}>
                             {author}{r.first_publish_year ? ` · ${r.first_publish_year}` : ""}{pages ? ` · ${pages} pages` : ""}
                           </div>
-                          <button
-                            style={{ ...(owned ? ghostBtn : btn(T.green)), marginTop: "auto", padding: "6px 12px", fontSize: 12, opacity: owned ? 0.6 : 1, cursor: owned ? "default" : "pointer" }}
-                            disabled={owned}
-                            onClick={() => addBook({ title: r.title, author, pages: pages || 200, status: "want" })}>
-                            {owned ? "On your shelf ✓" : "Add to shelf"}
-                          </button>
+                          {r.gutenId && (
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, letterSpacing: "0.06em" }}>
+                              📱 FREE DIGITAL — read it in this app
+                            </span>
+                          )}
+                          <div style={{ display: "flex", gap: 6, marginTop: "auto", flexWrap: "wrap" }}>
+                            <button
+                              style={{ ...(owned ? ghostBtn : btn(T.green)), padding: "6px 12px", fontSize: 12, opacity: owned ? 0.6 : 1, cursor: owned ? "default" : "pointer" }}
+                              disabled={owned}
+                              onClick={() => addBook({ title: r.title, author, pages: pages || 200, status: "want" })}>
+                              {owned ? "On your shelf ✓" : "Add to shelf"}
+                            </button>
+                            {r.gutenId && (
+                              <button
+                                style={{ ...btn(), padding: "6px 12px", fontSize: 12 }}
+                                onClick={() => { addDigital({ gid: r.gutenId, title: r.title, author: r.gutenAuthor || author }); setTab("read"); }}>
+                                Read free 📱
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -2790,10 +2827,12 @@ function BookTitleInput({ value, onChange, onPick, placeholder }) {
       setLoading(true);
       try {
         // Search BOTH catalogs at once and merge — far wider coverage
-        const [ol, gb] = await Promise.allSettled([
+        const [ol, gb, guten] = await Promise.allSettled([
           fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=15&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`).then((r) => r.json()),
           fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=12`).then((r) => r.json()),
+          gutenbergLookup(q),
         ]);
+        const gutenMap = guten.status === "fulfilled" ? guten.value : {};
         const merged = [];
         const seen = new Set();
         const push = (item) => {
@@ -2823,7 +2862,10 @@ function BookTitleInput({ value, onChange, onPick, placeholder }) {
             });
           });
         }
-        setResults(merged.slice(0, 20));
+        setResults(merged.slice(0, 20).map((m) => {
+          const g = gutenMap[normTitle(m.title)];
+          return g ? { ...m, gutenId: g.gid } : m;
+        }));
         setOpen(true);
       } catch { /* quiet fail — manual typing still works */ }
       setLoading(false);
@@ -2885,9 +2927,11 @@ function BookTitleInput({ value, onChange, onPick, placeholder }) {
                   <div style={{ width: 28, height: 40, borderRadius: 3, flexShrink: 0, background: spineColor(r.title) }} />
                 )}
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: "block", fontWeight: 700, fontSize: 14, color: T.ink, lineHeight: 1.2 }}>{r.title}</span>
+                  <span style={{ display: "block", fontWeight: 700, fontSize: 14, color: T.ink, lineHeight: 1.2 }}>
+                    {r.title}{r.gutenId ? " 📱" : ""}
+                  </span>
                   <span style={{ display: "block", fontSize: 12, color: T.inkSoft }}>
-                    {author}{r.year ? ` · ${r.year}` : ""}{r.pages ? ` · ${r.pages} pages` : ""}
+                    {author}{r.year ? ` · ${r.year}` : ""}{r.pages ? ` · ${r.pages} pages` : ""}{r.gutenId ? " · free digital" : ""}
                   </span>
                 </span>
               </button>
