@@ -39,9 +39,63 @@ const PICKS = [
   { title: "The Giver", author: "Lois Lowry", pages: 208, tags: ["Classics", "Fantasy"], blurb: "A quiet, haunting story that makes you want to talk about it." },
   { title: "A Wrinkle in Time", author: "Madeleine L'Engle", pages: 232, tags: ["Fantasy", "Adventure", "Classics"], blurb: "Space, time, and a rescue mission. A strange and wonderful classic." },
   { title: "Charlie and the Chocolate Factory", author: "Roald Dahl", pages: 176, tags: ["Funny", "Classics"], blurb: "Golden tickets and gleeful mischief. Dahl makes reading feel like candy." },
-  { title: "The Alchemist", author: "Paulo Coelho", pages: 197, tags: ["Short reads", "Classics"], blurb: "Simple sentences, big journey. A favorite first 'grown-up' book." },
+  { title: "The Alchemist", author: "Paulo Coelho", pages: 197, tags: ["Short reads", "Classics"], aud: "all", blurb: "Simple sentences, big journey. A favorite first 'grown-up' book." },
+  // ----- For adult & teen readers -----
+  { title: "The Thursday Murder Club", author: "Richard Osman", pages: 368, tags: ["Mystery", "Funny", "For adults"], aud: "adult", blurb: "Four retirees solve murders between biscuits. Cozy, clever, and very funny." },
+  { title: "And Then There Were None", author: "Agatha Christie", pages: 272, tags: ["Mystery", "Classics", "For adults"], aud: "adult", blurb: "The queen of crime's masterpiece — ten strangers, one island, no way out." },
+  { title: "The Silent Patient", author: "Alex Michaelides", pages: 336, tags: ["Mystery", "For adults"], aud: "adult", blurb: "A twist so good people gasp on the bus. Chapters fly by." },
+  { title: "Beach Read", author: "Emily Henry", pages: 384, tags: ["Romance", "Funny", "For adults"], aud: "adult", blurb: "Two rival writers, one summer. Witty, warm, impossible to put down." },
+  { title: "The Rosie Project", author: "Graeme Simsion", pages: 295, tags: ["Romance", "Funny", "For adults"], aud: "adult", blurb: "A genetics professor designs a questionnaire to find a wife. It does not go to plan." },
+  { title: "Atomic Habits", author: "James Clear", pages: 320, tags: ["Nonfiction", "For adults"], aud: "adult", blurb: "Tiny changes, remarkable results — short chapters you can act on the same day." },
+  { title: "Born a Crime", author: "Trevor Noah", pages: 304, tags: ["Nonfiction", "Funny", "For adults"], aud: "adult", blurb: "Growing up in apartheid South Africa — heartbreaking and hilarious, often on the same page." },
+  { title: "Man's Search for Meaning", author: "Viktor Frankl", pages: 165, tags: ["Nonfiction", "Short reads", "Classics", "For adults"], aud: "adult", blurb: "Short, profound, life-changing. One of the most recommended books ever written." },
+  { title: "Educated", author: "Tara Westover", pages: 334, tags: ["Nonfiction", "For adults"], aud: "adult", blurb: "A memoir that reads like a thriller — from no schooling to Cambridge." },
+  { title: "The Martian", author: "Andy Weir", pages: 369, tags: ["Sci-fi", "Funny", "Adventure", "For adults"], aud: "adult", blurb: "Stranded on Mars with potatoes and attitude. Science has never been this fun." },
+  { title: "Project Hail Mary", author: "Andy Weir", pages: 476, tags: ["Sci-fi", "Adventure", "For adults"], aud: "adult", blurb: "Wakes up alone in space with no memory. The buddy story of the decade." },
+  { title: "The House in the Cerulean Sea", author: "TJ Klune", pages: 396, tags: ["Fantasy", "Heartwarming", "For adults"], aud: "adult", blurb: "Like a warm hug in book form — magical children and found family." },
+  { title: "Of Mice and Men", author: "John Steinbeck", pages: 107, tags: ["Classics", "Short reads", "For adults"], aud: "adult", blurb: "An American classic you can finish in two sittings — and never forget." },
+  { title: "The Old Man and the Sea", author: "Ernest Hemingway", pages: 127, tags: ["Classics", "Short reads", "Adventure", "For adults"], aud: "adult", blurb: "One old fisherman, one giant fish. Hemingway's Nobel-winning knockout." },
 ];
-const ALL_TAGS = ["All", "Short reads", "Funny", "Adventure", "Heartwarming", "Fantasy", "Classics", "Pictures inside"];
+const ALL_TAGS = ["All", "Short reads", "Funny", "Adventure", "Heartwarming", "Fantasy", "Mystery", "Romance", "Sci-fi", "Nonfiction", "Classics", "Pictures inside", "For adults"];
+
+// ---------- The After Dark Shelf (adults only) ----------
+// Shown ONLY to readers who answered "grown-up" on the personality quiz.
+// These titles never appear in the general Discover list or in kids'/teens' matches.
+// For school or classroom deployments, set this to false to remove the section entirely:
+const SHOW_AFTER_DARK = true;
+
+const MATURE_SHELF = {
+  romance: {
+    label: "Spicy romance", emoji: "🌶️",
+    books: [
+      { title: "A Court of Thorns and Roses", author: "Sarah J. Maas", pages: 419, level: "🌶️🌶️🌶️", note: "The gateway book of the entire romantasy wave — faeries, bargains, and heat." },
+      { title: "Fourth Wing", author: "Rebecca Yarros", pages: 517, level: "🌶️🌶️🌶️", note: "Dragon riders at a brutal war college. The book everyone's friend made them read." },
+      { title: "The Love Hypothesis", author: "Ali Hazelwood", pages: 384, level: "🌶️🌶️", note: "Fake dating in a science lab — smart, funny, and steamy." },
+      { title: "Icebreaker", author: "Hannah Grace", pages: 448, level: "🌶️🌶️🌶️", note: "Figure skater meets hockey captain. TikTok's favorite rink romance." },
+      { title: "It Ends with Us", author: "Colleen Hoover", pages: 384, level: "🌶️🌶️", note: "The mega-bestseller — a love story with real weight behind it." },
+    ],
+  },
+  horror: {
+    label: "Horror", emoji: "👻",
+    books: [
+      { title: "The Shining", author: "Stephen King", pages: 447, level: "👻👻👻", note: "An empty hotel, a long winter. The king of horror at full power." },
+      { title: "The Haunting of Hill House", author: "Shirley Jackson", pages: 246, level: "👻👻", note: "The greatest haunted house novel ever written — dread on every page." },
+      { title: "Mexican Gothic", author: "Silvia Moreno-Garcia", pages: 301, level: "👻👻", note: "A glamorous socialite, a rotting mansion, a family with secrets." },
+      { title: "Bird Box", author: "Josh Malerman", pages: 262, level: "👻👻👻", note: "Don't open your eyes. A survival nightmare you'll finish in two nights." },
+      { title: "Pet Sematary", author: "Stephen King", pages: 374, level: "👻👻👻", note: "The book King himself thought went too far. Sometimes dead is better." },
+    ],
+  },
+  dark: {
+    label: "Dark & gritty", emoji: "🥃",
+    books: [
+      { title: "Gone Girl", author: "Gillian Flynn", pages: 415, level: "R", note: "The marriage-from-hell thriller with the twist that broke the internet." },
+      { title: "Verity", author: "Colleen Hoover", pages: 336, level: "R", note: "A found manuscript that gets darker with every chapter. Deeply unsettling, wildly popular." },
+      { title: "The Girl with the Dragon Tattoo", author: "Stieg Larsson", pages: 465, level: "R", note: "A decades-old disappearance and one unforgettable investigator. Brutal and brilliant." },
+      { title: "No Country for Old Men", author: "Cormac McCarthy", pages: 309, level: "R", note: "A bag of money, a relentless killer, spare deadly prose." },
+      { title: "Fight Club", author: "Chuck Palahniuk", pages: 218, level: "R", note: "You know the first rule. Short, savage, unforgettable." },
+    ],
+  },
+};
 
 const PROMPTS = [
   "Which character would you want as a friend, and why?",
@@ -55,6 +109,34 @@ const PROMPTS = [
 
 // ---------- Reading personality quiz ----------
 const QUIZ = [
+  { q: "Who's doing the reading?", options: [
+    { label: "A young reader (elementary/middle school)", tags: {}, audience: "kid" },
+    { label: "A teen", tags: {}, audience: "teen" },
+    { label: "A grown-up", tags: {}, audience: "adult" },
+  ]},
+  { q: "Made-up stories, or real life?", options: [
+    { label: "Fiction all the way — take me somewhere else", tags: {} },
+    { label: "True stories and real-world ideas", tags: { Nonfiction: 3 } },
+    { label: "Mix it up", tags: { Nonfiction: 1 } },
+  ]},
+  { q: "Pick a night-in movie:", options: [
+    { label: "A whodunit with a twist", tags: { Mystery: 3 } },
+    { label: "A love story", tags: { Romance: 3 } },
+    { label: "A space odyssey", tags: { "Sci-fi": 3 } },
+    { label: "A stand-up comedy special", tags: { Funny: 2 } },
+  ]},
+  { q: "Pick a vacation:", options: [
+    { label: "A cabin in the woods, no phone signal", tags: { Mystery: 1, Classics: 1 } },
+    { label: "A city I've never been to", tags: { Nonfiction: 1, Adventure: 2 } },
+    { label: "A beach with a big bag of books", tags: { Romance: 2, Funny: 1 } },
+    { label: "Somewhere that isn't on any map", tags: { Fantasy: 2, "Sci-fi": 1 } },
+  ]},
+  { q: "Be honest about your reading history:", options: [
+    { label: "I haven't finished a book in years", tags: { "Short reads": 2, Funny: 1 }, maxPages: 250 },
+    { label: "I read in waves — binge, then nothing", tags: { Mystery: 1, Romance: 1 } },
+    { label: "I read a little, want to read more", tags: { "Short reads": 1 } },
+    { label: "I read plenty — just want better picks", tags: {} },
+  ]},
   { q: "What sounds like a perfect Friday night?", options: [
     { label: "Laughing until it hurts", tags: { Funny: 3 } },
     { label: "An adventure — the wilder the better", tags: { Adventure: 3 } },
@@ -96,25 +178,38 @@ const ARCHETYPES = {
   Classics: { name: "The Old Soul", emoji: "📜", line: "You're drawn to books that have stood the test of time — and you like a story that makes you think." },
   "Short reads": { name: "The Sprinter", emoji: "⚡", line: "You read in bursts, and that's a superpower. Short, punchy books stack up fast." },
   "Pictures inside": { name: "The Visual Storyteller", emoji: "🎨", line: "You think in images. Graphic novels and illustrated books were made for you." },
+  Mystery: { name: "The Detective", emoji: "🕵️", line: "You read to solve. Twists, clues, and one-more-chapter-at-2am endings are your weakness." },
+  Romance: { name: "The Romantic", emoji: "🌹", line: "You read for the butterflies. Great banter and a happy ending make any week better." },
+  "Sci-fi": { name: "The Explorer", emoji: "🚀", line: "You want big ideas and bigger worlds. The future is your favorite place to visit." },
+  Nonfiction: { name: "The Curious Mind", emoji: "🔭", line: "You read to understand — real stories, real ideas, and facts you can't wait to share." },
 };
 
 function scoreQuiz(answers) {
   const tagScores = {};
   let maxPages = Infinity;
+  let audience = "all";
   answers.forEach((ai, qi) => {
     const opt = QUIZ[qi]?.options[ai];
     if (!opt) return;
     Object.entries(opt.tags).forEach(([t, v]) => { tagScores[t] = (tagScores[t] || 0) + v; });
     if (opt.maxPages) maxPages = Math.min(maxPages, opt.maxPages);
+    if (opt.audience) audience = opt.audience;
   });
-  return { tagScores, maxPages };
+  return { tagScores, maxPages, audience };
 }
 
 function matchBooks(answers) {
-  const { tagScores, maxPages } = scoreQuiz(answers);
-  return PICKS.map((p) => {
+  const { tagScores, maxPages, audience } = scoreQuiz(answers);
+  let pool = PICKS;
+  // Young readers never get adult-audience books recommended
+  if (audience === "kid") pool = PICKS.filter((p) => p.aud !== "adult");
+  return pool.map((p) => {
     let score = p.tags.reduce((s, t) => s + (tagScores[t] || 0), 0);
     score += p.pages <= maxPages ? 1 : -2;
+    const aud = p.aud || "kids";
+    if (audience === "adult") score += aud === "adult" ? 3 : aud === "all" ? 1 : -3;
+    if (audience === "teen") score += aud === "all" ? 2 : 0;
+    if (audience === "kid") score += aud === "kids" ? 2 : 0;
     return { ...p, score, reasons: p.tags.filter((t) => tagScores[t]) };
   }).sort((a, b) => b.score - a.score);
 }
@@ -385,6 +480,7 @@ export default function ShelfLife() {
   const [quizDraft, setQuizDraft] = useState([]);
   const [aiPicks, setAiPicks] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [matureTab, setMatureTab] = useState("romance");
   const [points, setPoints] = useState(0);
   const [quizResults, setQuizResults] = useState({}); // bookId -> {score, total, passed, at}
   const [bookQuiz, setBookQuiz] = useState(null); // {bookId, title, loading, questions, answers, submitted, score, earned}
@@ -683,6 +779,16 @@ export default function ShelfLife() {
   const myArch = quiz ? ARCHETYPES[topTag(scoreQuiz(quiz).tagScores)] : null;
   const onShelfTitles = useMemo(() => new Set(books.map((b) => b.title.toLowerCase())), [books]);
 
+  // Live search: results appear as you type (no button press needed)
+  useEffect(() => {
+    if (tab !== "discover") return;
+    const q = bookQuery.trim();
+    if (q.length < 3) return;
+    const t = setTimeout(() => { searchBooks(); }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookQuery, tab]);
+
   // ----- Open Library book search (~40 million books, free, no key) -----
   const searchBooks = async () => {
     const q = bookQuery.trim();
@@ -690,7 +796,7 @@ export default function ShelfLife() {
     setSearching(true);
     try {
       const r = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=12&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`
+        `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=20&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`
       );
       const d = await r.json();
       setSearchResults(d.docs || []);
@@ -717,7 +823,8 @@ export default function ShelfLife() {
   const askClaude = async () => {
     if (!quiz) return;
     setAiLoading(true);
-    const { tagScores, maxPages } = scoreQuiz(quiz);
+    const { tagScores, maxPages, audience } = scoreQuiz(quiz);
+    const audienceNote = audience === "adult" ? "The reader is an adult." : audience === "teen" ? "The reader is a teenager." : "The reader is a child — recommend only age-appropriate books.";
     const likes = Object.entries(tagScores).sort((a, b) => b[1] - a[1]).map(([t]) => t).join(", ");
     const avoid = [...PICKS.map((p) => p.title), ...books.map((b) => b.title)].join("; ");
     try {
@@ -729,7 +836,7 @@ export default function ShelfLife() {
           max_tokens: 1000,
           messages: [{
             role: "user",
-            content: `Recommend exactly 3 real, well-known books for a beginner reader building a reading habit. Their taste: ${likes}. ${maxPages !== Infinity ? `Prefer books under ${maxPages} pages.` : ""} Do NOT recommend any of these (already known to them): ${avoid}. Respond with ONLY a JSON array, no markdown fences, no other text: [{"title": "...", "author": "...", "pages": 123, "why": "one friendly sentence on why it fits them"}]`,
+            content: `Recommend exactly 3 real, well-known books for a beginner reader building a reading habit. ${audienceNote} Their taste: ${likes}. ${maxPages !== Infinity ? `Prefer books under ${maxPages} pages.` : ""} Do NOT recommend any of these (already known to them): ${avoid}. Respond with ONLY a JSON array, no markdown fences, no other text: [{"title": "...", "author": "...", "pages": 123, "why": "one friendly sentence on why it fits them"}]`,
           }],
         }),
       });
@@ -812,6 +919,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v6</span>
         </p>
       </header>
 
@@ -913,8 +1021,23 @@ export default function ShelfLife() {
             ) : (
               <Ruled style={{ marginBottom: 8 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-                  <input style={input} placeholder="Book title *" value={form.title}
-                    onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                  <div>
+                    <BookTitleInput
+                      placeholder="Book title * (start typing for suggestions)"
+                      value={form.title}
+                      onChange={(v) => setForm({ ...form, title: v })}
+                      onPick={async (b) => {
+                        setForm((f) => ({ ...f, title: b.title, author: b.author, pages: String(b.pages || "") }));
+                        if (!b.pages) {
+                          const pages = await lookupPages(b.title, b.author);
+                          if (pages) setForm((f) => (f.title === b.title ? { ...f, pages: String(pages) } : f));
+                        }
+                      }}
+                    />
+                    <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 4 }}>
+                      Start typing and pick a match — we'll fill in the author and page count for you.
+                    </div>
+                  </div>
                   <input style={input} placeholder="Author" value={form.author}
                     onChange={(e) => setForm({ ...form, author: e.target.value })} />
                   <input style={input} placeholder="Pages (guess is fine)" inputMode="numeric" value={form.pages}
@@ -1229,6 +1352,16 @@ export default function ShelfLife() {
         {/* ---------------- BOOK CLUB ---------------- */}
         {tab === "club" && (
           <div style={{ animation: "rise .3s ease" }}>
+            {!sharedIsLive && (
+              <div style={{
+                border: `1.5px solid ${T.stamp}`, background: "#FBF3EE", borderRadius: 8,
+                padding: "8px 12px", fontSize: 12.5, marginBottom: 14, color: T.ink,
+              }}>
+                <strong style={{ color: T.stamp }}>Single-device mode:</strong> the shared database isn't connected yet,
+                so classes, wall posts, and meetups only exist on this device. Connect Supabase (see README step 4)
+                to sync across everyone's phones.
+              </div>
+            )}
             {/* Conversation starter */}
             <div style={{
               border: `2px dashed ${T.stamp}`, borderRadius: 10, padding: "14px 16px",
@@ -1471,7 +1604,7 @@ export default function ShelfLife() {
             ) : (
               /* ----- Results ----- */
               (() => {
-                const { tagScores } = scoreQuiz(quiz);
+                const { tagScores, audience } = scoreQuiz(quiz);
                 const arch = ARCHETYPES[topTag(tagScores)];
                 const matches = matchBooks(quiz).filter((m) => !onShelfTitles.has(m.title.toLowerCase())).slice(0, 5);
                 return (
@@ -1558,6 +1691,75 @@ export default function ShelfLife() {
                         </div>
                       )}
                     </div>
+
+                    {/* ----- The After Dark Shelf: adults only ----- */}
+                    {SHOW_AFTER_DARK && audience === "adult" && (
+                      <div style={{
+                        marginTop: 26, background: T.ink, borderRadius: 14, padding: "18px 18px 16px",
+                        color: T.paper,
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+                          <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 21, margin: 0 }}>
+                            🌙 The After Dark Shelf
+                          </h2>
+                          <span style={{
+                            fontSize: 10.5, fontWeight: 700, letterSpacing: "0.12em",
+                            border: "1.5px solid #F0A860", color: "#F0A860", borderRadius: 5,
+                            padding: "2px 8px", transform: "rotate(-2deg)",
+                          }}>
+                            GROWN-UPS ONLY
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, opacity: 0.85, margin: "6px 0 12px" }}>
+                          Because adult beginner readers deserve the fun stuff too. These titles include explicit,
+                          frightening, or graphic content — they never appear in young readers' recommendations.
+                        </p>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                          {Object.entries(MATURE_SHELF).map(([id, cat]) => (
+                            <button key={id} onClick={() => setMatureTab(id)}
+                              style={{
+                                padding: "6px 14px", borderRadius: 999, fontSize: 13, cursor: "pointer", fontWeight: 700,
+                                border: `1.5px solid ${matureTab === id ? "#F0A860" : "rgba(244,238,221,0.35)"}`,
+                                background: matureTab === id ? "#F0A860" : "transparent",
+                                color: matureTab === id ? T.ink : T.paper,
+                                fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                              }}>
+                              {cat.emoji} {cat.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+                          {MATURE_SHELF[matureTab].books.map((b) => {
+                            const owned = onShelfTitles.has(b.title.toLowerCase());
+                            return (
+                              <div key={b.title} style={{
+                                background: "rgba(244,238,221,0.07)", border: "1px solid rgba(244,238,221,0.22)",
+                                borderRadius: 10, padding: 13, display: "flex", flexDirection: "column", gap: 5,
+                              }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, lineHeight: 1.2 }}>{b.title}</div>
+                                  <span style={{ fontSize: 12, flexShrink: 0 }}>{b.level}</span>
+                                </div>
+                                <div style={{ fontSize: 12.5, opacity: 0.75 }}>{b.author} · {b.pages} pages</div>
+                                <div style={{ fontSize: 13.5, flex: 1, opacity: 0.92 }}>{b.note}</div>
+                                <button
+                                  style={{
+                                    marginTop: 5, padding: "8px 14px", borderRadius: 8, fontWeight: 700, fontSize: 13,
+                                    cursor: owned ? "default" : "pointer", border: "none",
+                                    background: owned ? "rgba(244,238,221,0.25)" : "#F0A860",
+                                    color: owned ? T.paper : T.ink,
+                                    fontFamily: "'Atkinson Hyperlegible', sans-serif", opacity: owned ? 0.7 : 1,
+                                  }}
+                                  disabled={owned}
+                                  onClick={() => addBook({ title: b.title, author: b.author, pages: b.pages, status: "want" })}>
+                                  {owned ? "On your shelf ✓" : "Add to shelf"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()
@@ -1568,6 +1770,16 @@ export default function ShelfLife() {
         {/* ---------------- CLASSROOM ---------------- */}
         {tab === "classroom" && (
           <div style={{ animation: "rise .3s ease" }}>
+            {!sharedIsLive && (
+              <div style={{
+                border: `1.5px solid ${T.stamp}`, background: "#FBF3EE", borderRadius: 8,
+                padding: "8px 12px", fontSize: 12.5, marginBottom: 14, color: T.ink,
+              }}>
+                <strong style={{ color: T.stamp }}>Single-device mode:</strong> the shared database isn't connected yet,
+                so classes, wall posts, and meetups only exist on this device. Connect Supabase (see README step 4)
+                to sync across everyone's phones.
+              </div>
+            )}
             {/* Entry choice */}
             {!teaching && !classroom && !classMode && (
               <div>
@@ -2007,6 +2219,112 @@ function Section({ title, children }) {
       </h2>
       {children}
     </section>
+  );
+}
+
+// Fallback page-count lookup (Google Books, free, no key) for when Open Library has no count
+async function lookupPages(title, author) {
+  try {
+    const q = `intitle:${title}` + (author ? ` inauthor:${author}` : "");
+    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=1`);
+    const d = await r.json();
+    return d.items?.[0]?.volumeInfo?.pageCount || "";
+  } catch {
+    return "";
+  }
+}
+
+// Autocomplete title input — suggestions pop up from Open Library as you type.
+// Picking one auto-fills title/author/pages; free typing still works.
+function BookTitleInput({ value, onChange, onPick, placeholder }) {
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const q = (value || "").trim();
+    if (q.length < 3) { setResults([]); setOpen(false); return; }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=10&fields=key,title,author_name,number_of_pages_median,cover_i,first_publish_year`
+        );
+        const d = await r.json();
+        setResults(d.docs || []);
+        setOpen(true);
+      } catch { /* quiet fail — manual typing still works */ }
+      setLoading(false);
+    }, 450);
+    return () => clearTimeout(t);
+  }, [value]);
+
+  const inputStyle = {
+    width: "100%", boxSizing: "border-box", padding: "10px 12px",
+    border: `1.5px solid ${T.rule}`, borderRadius: 8, background: T.card,
+    color: T.ink, fontSize: 15, fontFamily: "'Atkinson Hyperlegible', sans-serif", outline: "none",
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={inputStyle}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 180)}
+        autoComplete="off"
+      />
+      {loading && (
+        <span style={{ position: "absolute", right: 10, top: 12, fontSize: 12, color: T.inkSoft }}>…</span>
+      )}
+      {open && results.length > 0 && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40,
+          background: T.card, border: `1.5px solid ${T.blue}`, borderRadius: 10,
+          maxHeight: 280, overflowY: "auto", boxShadow: "0 8px 24px rgba(34,51,77,0.22)",
+        }}>
+          {results.map((r) => {
+            const author = (r.author_name || [])[0] || "";
+            return (
+              <button
+                key={r.key}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onPick({
+                    title: r.title,
+                    author,
+                    pages: r.number_of_pages_median || "",
+                    coverId: r.cover_i || null,
+                  });
+                  setOpen(false);
+                }}
+                style={{
+                  display: "flex", gap: 10, alignItems: "center", width: "100%",
+                  textAlign: "left", padding: "8px 10px", border: "none", cursor: "pointer",
+                  background: "transparent", borderBottom: `1px solid ${T.rule}`,
+                  fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                }}
+              >
+                {r.cover_i ? (
+                  <img src={`https://covers.openlibrary.org/b/id/${r.cover_i}-S.jpg`} alt=""
+                    style={{ width: 28, height: 40, objectFit: "cover", borderRadius: 3, flexShrink: 0 }} />
+                ) : (
+                  <div style={{ width: 28, height: 40, borderRadius: 3, flexShrink: 0, background: spineColor(r.title) }} />
+                )}
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", fontWeight: 700, fontSize: 14, color: T.ink, lineHeight: 1.2 }}>{r.title}</span>
+                  <span style={{ display: "block", fontSize: 12, color: T.inkSoft }}>
+                    {author}{r.first_publish_year ? ` \u00b7 ${r.first_publish_year}` : ""}{r.number_of_pages_median ? ` \u00b7 ${r.number_of_pages_median} pages` : ""}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
