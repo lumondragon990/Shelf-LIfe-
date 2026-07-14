@@ -389,9 +389,9 @@ async function loadShelf() {
   try {
     const r = await storage.get("shelf-data-v1");
     const d = r ? JSON.parse(r.value) : {};
-    return { books: d.books || [], readDays: d.readDays || [], goalDays: d.goalDays || 4, quiz: d.quiz || null, points: d.points || 0, quizResults: d.quizResults || {}, classroom: d.classroom || null, teaching: d.teaching || null, digitalShelf: d.digitalShelf || [] };
+    return { books: d.books || [], readDays: d.readDays || [], goalDays: d.goalDays || 4, quiz: d.quiz || null, points: d.points || 0, quizResults: d.quizResults || {}, classroom: d.classroom || null, teaching: d.teaching || null, digitalShelf: d.digitalShelf || [], myWords: d.myWords || [] };
   } catch {
-    return { books: [], readDays: [], goalDays: 4, quiz: null, points: 0, quizResults: {}, classroom: null, teaching: null, digitalShelf: [] };
+    return { books: [], readDays: [], goalDays: 4, quiz: null, points: 0, quizResults: {}, classroom: null, teaching: null, digitalShelf: [], myWords: [] };
   }
 }
 async function saveShelf(data) {
@@ -576,13 +576,19 @@ export default function ShelfLife() {
   const [reader, setReader] = useState(null); // {gid, title, author, pages, page, loading}
   const [readerFont, setReaderFont] = useState(17);
   const [wordCard, setWordCard] = useState(null); // {word, loading, phonetic, pos, definition, notFound}
+  const [myWords, setMyWords] = useState([]); // [{word, definition, at}]
+  const [wordQuiz, setWordQuiz] = useState(null); // {questions, answers, submitted, score}
+  const [showWords, setShowWords] = useState(false);
+  const [recap, setRecap] = useState(null); // {bookId, loading, text}
+  const [readAlong, setReadAlong] = useState({ on: false, char: -1 });
+  const [practice, setPractice] = useState(null); // {passage, words, listening, results, matched, done}
   const [gutenQuery, setGutenQuery] = useState("");
   const [gutenResults, setGutenResults] = useState(null);
   const [gutenLoading, setGutenLoading] = useState(false);
   const [classroom, setClassroom] = useState(null); // student: {code, name, className, teacher, book, chapters, chapter}
   const [teaching, setTeaching] = useState(null); // teacher: {code, className, teacher, book, chapters}
   const [classMode, setClassMode] = useState(null); // null | "teacher-setup" | "student-join"
-  const [classForm, setClassForm] = useState({ teacher: "", className: "", book: "", chapters: "" });
+  const [classForm, setClassForm] = useState({ teacher: "", className: "", book: "", chapters: "", kind: "class" });
   const [joinForm, setJoinForm] = useState({ code: "", name: "" });
   const [roster, setRoster] = useState(null);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -602,6 +608,7 @@ export default function ShelfLife() {
       setClassroom(d.classroom || null);
       setTeaching(d.teaching || null);
       setDigitalShelf(d.digitalShelf || []);
+      setMyWords(d.myWords || []);
       if (d.quiz) setPickTag(topTag(scoreQuiz(d.quiz).tagScores));
       setLoaded(true);
     });
@@ -673,6 +680,7 @@ export default function ShelfLife() {
       code: makeClassCode(),
       teacher: classForm.teacher.trim().slice(0, 40),
       className: classForm.className.trim().slice(0, 50),
+      kind: classForm.kind === "family" ? "family" : "class",
       book: classForm.book.trim().slice(0, 80),
       bookAuthor: (classForm.bookAuthor || "").trim().slice(0, 40),
       chapters: Math.max(1, Math.min(99, parseInt(classForm.chapters) || 10)),
@@ -844,7 +852,7 @@ export default function ShelfLife() {
   };
 
   const persist = (patch) => {
-    const next = { books, readDays, goalDays, quiz, points, quizResults, classroom, teaching, digitalShelf, ...patch };
+    const next = { books, readDays, goalDays, quiz, points, quizResults, classroom, teaching, digitalShelf, myWords, ...patch };
     setBooks(next.books);
     setReadDays(next.readDays);
     setGoalDays(next.goalDays);
@@ -854,6 +862,7 @@ export default function ShelfLife() {
     setClassroom(next.classroom);
     setTeaching(next.teaching);
     setDigitalShelf(next.digitalShelf);
+    setMyWords(next.myWords);
     saveShelf(next);
   };
   const withToday = (days) => (days.includes(todayKey()) ? days : [...days, todayKey()]);
@@ -905,7 +914,8 @@ export default function ShelfLife() {
   const updateBook = (id, patch) => {
     const nextBooks = books.map((b) => (b.id === id ? { ...b, ...patch } : b));
     const nextDays = "currentPage" in patch ? withToday(readDays) : readDays;
-    persist({ books: nextBooks, readDays: nextDays });
+    const stamped = "currentPage" in patch ? nextBooks.map((b) => (b.id === id ? { ...b, lastReadAt: Date.now() } : b)) : nextBooks;
+    persist({ books: stamped, readDays: nextDays });
   };
   const removeBook = (id) => persist({ books: books.filter((b) => b.id !== id) });
   const finishBook = (id) => {
@@ -1122,6 +1132,77 @@ export default function ShelfLife() {
 
   const removeDigital = (gid) => persist({ digitalShelf: digitalShelf.filter((x) => x.gid !== gid) });
 
+  // ----- Read to me: speaks the page, highlighting each word (karaoke mode) -----
+  const startReadAlong = () => {
+    if (!reader?.pages?.length) return;
+    try {
+      const text = reader.pages[reader.page];
+      const u = new SpeechSynthesisUtterance(text);
+      const accents = (text.match(/[áéíóúñü]/gi) || []).length;
+      u.lang = accents > 4 ? "es-ES" : "en-US";
+      u.rate = 0.85;
+      u.onboundary = (e) => {
+        if (e.name === "word" || e.charIndex !== undefined) setReadAlong({ on: true, char: e.charIndex });
+      };
+      u.onend = () => setReadAlong({ on: false, char: -1 });
+      u.onerror = () => setReadAlong({ on: false, char: -1 });
+      window.speechSynthesis.cancel();
+      setReadAlong({ on: true, char: 0 });
+      window.speechSynthesis.speak(u);
+    } catch {
+      flash("Read-aloud isn't available in this browser");
+    }
+  };
+  const stopReadAlong = () => {
+    try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+    setReadAlong({ on: false, char: -1 });
+  };
+
+  // ----- Practice reading out loud: speech recognition checks the words -----
+  const normW = (w) => (w || "").toLowerCase().replace(/[^a-záéíóúñü']/gi, "");
+  const startPractice = () => {
+    if (!reader?.pages?.length) return;
+    stopReadAlong();
+    // Take the first ~30 words of the current page as the passage
+    const words = reader.pages[reader.page].split(/\s+/).filter((w) => /\S/.test(w)).slice(0, 30);
+    setPractice({ passage: words.join(" "), words, listening: false, matched: null, done: false });
+  };
+  const listenPractice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { flash("Voice practice needs Chrome or Edge — read-to-me still works everywhere!"); return; }
+    try {
+      const rec = new SR();
+      const accents = (practice.passage.match(/[áéíóúñü]/gi) || []).length;
+      rec.lang = accents > 2 ? "es-ES" : "en-US";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.continuous = true;
+      let heard = "";
+      rec.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) heard += " " + e.results[i][0].transcript; };
+      rec.onerror = () => { setPractice((pr) => pr && { ...pr, listening: false }); flash("Mic hiccup — check mic permission and try again"); };
+      rec.onend = () => {
+        setPractice((pr) => {
+          if (!pr) return pr;
+          const heardSet = new Set(heard.split(/\s+/).map(normW).filter(Boolean));
+          const matched = pr.words.map((w) => heardSet.has(normW(w)));
+          const hits = matched.filter(Boolean).length;
+          const pctHit = Math.round((hits / pr.words.length) * 100);
+          persist({ points: points + 5, readDays: withToday(readDays) });
+          if (pctHit >= 70) celebrate();
+          return { ...pr, listening: false, matched, pct: pctHit, done: true };
+        });
+      };
+      setPractice((pr) => pr && { ...pr, listening: true, matched: null, done: false });
+      rec.start();
+      // auto-stop after 30 seconds
+      setTimeout(() => { try { rec.stop(); } catch { /* noop */ } }, 30000);
+      window.__slRec = rec; // so the Stop button can end it
+    } catch {
+      flash("Couldn't start the microphone");
+    }
+  };
+  const stopListening = () => { try { window.__slRec?.stop(); } catch { /* noop */ } };
+
   // ----- Word helper: tap a word to hear it and see its meaning -----
   const speakWord = (word) => {
     try {
@@ -1131,6 +1212,11 @@ export default function ShelfLife() {
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     } catch { /* some browsers block speech; the card still shows meaning */ }
+  };
+
+  const saveWord = (word, definition) => {
+    if (myWords.some((w) => w.word === word)) return;
+    persist({ myWords: [{ word, definition: definition.slice(0, 160), at: Date.now() }, ...myWords].slice(0, 300) });
   };
 
   const lookupWord = async (raw) => {
@@ -1166,6 +1252,7 @@ export default function ShelfLife() {
             definition: def + (w !== word ? ` (from "${w}")` : ""),
             loading: false,
           });
+          saveWord(word, def);
           return;
         }
       } catch { /* try next */ }
@@ -1189,6 +1276,7 @@ export default function ShelfLife() {
       const text = (data.content || []).filter((x) => x.type === "text").map((x) => x.text).join(" ").trim();
       if (text) {
         setWordCard({ word, definition: text, pos: "", phonetic: "", ai: true, loading: false });
+        saveWord(word, text);
         return;
       }
     } catch { /* fall through */ }
@@ -1225,6 +1313,7 @@ export default function ShelfLife() {
 
   const turnPage = (delta) => {
     if (!reader?.pages?.length) return;
+    stopReadAlong();
     const total = reader.pages.length;
     const page = Math.max(0, Math.min(total - 1, reader.page + delta));
     setReader({ ...reader, page });
@@ -1290,6 +1379,54 @@ export default function ShelfLife() {
       flash("Couldn't load more picks — try again in a moment");
     }
     setMorePicksLoading(false);
+  };
+
+  // ----- "Catch me up": spoiler-safe recap of the story so far -----
+  const catchMeUp = async (book) => {
+    const pct = Math.round(((book.currentPage || 0) / (book.pages || 1)) * 100);
+    setRecap({ bookId: book.id, loading: true });
+    try {
+      const response = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 400,
+          messages: [{
+            role: "user",
+            content: `A beginner reader is about ${pct}% of the way through "${book.title}"${book.author ? ` by ${book.author}` : ""} and is coming back after a break. In 3-4 warm, simple sentences, remind them what has happened in the story UP TO roughly that point ONLY — absolutely no spoilers past it. End with one encouraging line welcoming them back. If you don't know this specific book, instead offer a friendly note that it's okay to skim back a few pages to rejoin the story. Respond with only the recap, no preamble.`,
+          }],
+        }),
+      });
+      const data = await response.json();
+      const text = (data.content || []).filter((x) => x.type === "text").map((x) => x.text).join(" ").trim();
+      if (!text) throw new Error("empty");
+      setRecap({ bookId: book.id, loading: false, text });
+    } catch {
+      flash("Couldn't build a recap — try again in a moment");
+      setRecap(null);
+    }
+  };
+
+  // ----- My Words review quiz -----
+  const startWordQuiz = () => {
+    if (myWords.length < 4) return;
+    const pool = [...myWords].sort(() => Math.random() - 0.5);
+    const questions = pool.slice(0, Math.min(5, pool.length)).map((w) => {
+      const wrong = pool.filter((x) => x.word !== w.word).sort(() => Math.random() - 0.5).slice(0, 3).map((x) => x.definition);
+      const options = [...wrong, w.definition].sort(() => Math.random() - 0.5);
+      return { word: w.word, options, answer: options.indexOf(w.definition) };
+    });
+    setWordQuiz({ questions, answers: [], submitted: false });
+  };
+
+  const submitWordQuiz = () => {
+    if (!wordQuiz) return;
+    const score = wordQuiz.questions.reduce((s2, q, i) => s2 + (wordQuiz.answers[i] === q.answer ? 1 : 0), 0);
+    const earned = score * 2;
+    persist({ points: points + earned });
+    setWordQuiz({ ...wordQuiz, submitted: true, score, earned });
+    if (score >= wordQuiz.questions.length - 1) celebrate();
   };
 
   // ----- Personality quiz helpers -----
@@ -1407,7 +1544,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v15</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v16</span>
         </p>
       </header>
 
@@ -1565,6 +1702,88 @@ export default function ShelfLife() {
               </Ruled>
             )}
 
+            {/* My words — the vocabulary shelf */}
+            {myWords.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, borderBottom: `2px solid ${T.rule}`, paddingBottom: 6 }}>
+                  <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 20, margin: 0 }}>
+                    📖 My words <span style={{ fontSize: 13, color: T.inkSoft, fontWeight: 400 }}>{myWords.length} collected</span>
+                  </h2>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button style={{ ...ghostBtn, padding: "4px 12px", fontSize: 12 }} onClick={() => setShowWords(!showWords)}>
+                      {showWords ? "Hide" : "See my words"}
+                    </button>
+                    {myWords.length >= 4 && (
+                      <button style={{ ...btn(), padding: "4px 12px", fontSize: 12 }} onClick={startWordQuiz}>
+                        Review quiz 🧠 (+2 pts each)
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p style={{ fontSize: 12, color: T.inkSoft, margin: "6px 0 0" }}>
+                  Every word you tap in the reader lands here — watch your vocabulary grow.
+                </p>
+
+                {showWords && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                    {myWords.slice(0, 60).map((w) => (
+                      <span key={w.word} title={w.definition} style={{
+                        fontSize: 13, fontWeight: 700, color: T.blue, background: "#E8EEF7",
+                        borderRadius: 999, padding: "3px 12px", cursor: "default",
+                      }}>
+                        {w.word}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {wordQuiz && (
+                  <div style={{ marginTop: 12, border: `1.5px solid ${T.blue}`, borderRadius: 10, background: "#F5F8FC", padding: "14px 16px" }}>
+                    {!wordQuiz.submitted ? (
+                      <div>
+                        <strong>Which meaning matches?</strong>
+                        {wordQuiz.questions.map((q, qi) => (
+                          <div key={qi} style={{ margin: "10px 0" }}>
+                            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{qi + 1}. “{q.word}”</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 6 }}>
+                              {q.options.map((opt, oi) => (
+                                <button key={oi}
+                                  onClick={() => { const answers = [...wordQuiz.answers]; answers[qi] = oi; setWordQuiz({ ...wordQuiz, answers }); }}
+                                  style={{
+                                    textAlign: "left", padding: "8px 10px", borderRadius: 8, fontSize: 12.5, cursor: "pointer",
+                                    border: `1.5px solid ${wordQuiz.answers[qi] === oi ? T.blue : T.rule}`,
+                                    background: wordQuiz.answers[qi] === oi ? "#DDE8F6" : T.card,
+                                    color: T.ink, fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                                  }}>
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            style={{ ...btn(), opacity: wordQuiz.answers.filter((a) => a !== undefined).length === wordQuiz.questions.length ? 1 : 0.5 }}
+                            disabled={wordQuiz.answers.filter((a) => a !== undefined).length !== wordQuiz.questions.length}
+                            onClick={submitWordQuiz}>
+                            Check my answers
+                          </button>
+                          <button style={ghostBtn} onClick={() => setWordQuiz(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 34 }}>{wordQuiz.score >= wordQuiz.questions.length - 1 ? "🎉" : "📖"}</div>
+                        <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22 }}>{wordQuiz.score} / {wordQuiz.questions.length}</div>
+                        <div style={{ fontSize: 13, margin: "4px 0 10px" }}>+{wordQuiz.earned} pts — these words are becoming yours.</div>
+                        <button style={btn()} onClick={() => setWordQuiz(null)}>Done</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Reading now */}
             {reading.length > 0 && (
               <Section title="Reading now">
@@ -1586,7 +1805,28 @@ export default function ShelfLife() {
                           +5 pages
                         </button>
                         <button style={btn(T.stamp)} onClick={() => finishBook(b.id)}>I finished it!</button>
+                        {b.currentPage > 0 && (
+                          <button style={ghostBtn} onClick={() => catchMeUp(b)}>
+                            {b.lastReadAt && Date.now() - b.lastReadAt > 4 * 86400000 ? "Been a while — catch me up 🕯️" : "Catch me up 🕯️"}
+                          </button>
+                        )}
                       </div>
+                      {recap && recap.bookId === b.id && (
+                        <div style={{
+                          marginTop: 10, border: `1.5px dashed ${T.blue}`, borderRadius: 10,
+                          background: "#F5F8FC", padding: "10px 14px", fontSize: 14,
+                        }}>
+                          <div style={{ fontSize: 11, letterSpacing: "0.12em", color: T.blue, fontWeight: 700, marginBottom: 4 }}>
+                            THE STORY SO FAR (no spoilers)
+                          </div>
+                          {recap.loading ? "Remembering where you were…" : recap.text}
+                          {!recap.loading && (
+                            <div style={{ marginTop: 6 }}>
+                              <button style={{ ...ghostBtn, padding: "3px 10px", fontSize: 11 }} onClick={() => setRecap(null)}>Got it ✓</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </BookRow>
                 ))}
@@ -2327,12 +2567,12 @@ export default function ShelfLife() {
                 <div style={{ textAlign: "center", marginBottom: 18 }}>
                   <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 26 }}>Classroom</div>
                   <p style={{ color: T.inkSoft, margin: "6px auto 0", fontSize: 14, maxWidth: 480 }}>
-                    Read a book together, chapter by chapter. Teachers see where each reader is —
-                    to help, never to rank.
+                    Read a book together, chapter by chapter — as a classroom or as a family.
+                    Whoever leads sees where each reader is — to help, never to rank.
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  <button onClick={() => setClassMode("teacher-setup")} style={{
+                  <button onClick={() => { setClassForm({ ...classForm, kind: "class" }); setClassMode("teacher-setup"); }} style={{
                     flex: "1 1 240px", background: T.card, border: `2px solid ${T.blue}`, borderRadius: 12,
                     padding: "22px 18px", cursor: "pointer", textAlign: "center", fontFamily: "'Atkinson Hyperlegible', sans-serif",
                   }}>
@@ -2340,7 +2580,15 @@ export default function ShelfLife() {
                     <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 19, color: T.ink }}>I'm a teacher</div>
                     <div style={{ fontSize: 13, color: T.inkSoft, marginTop: 4 }}>Set up a class book and get a join code for your students</div>
                   </button>
-                  <button onClick={() => setClassMode("student-join")} style={{
+                  <button onClick={() => { setClassForm({ ...classForm, kind: "family" }); setClassMode("teacher-setup"); }} style={{
+                    flex: "1 1 240px", background: T.card, border: `2px solid ${T.stamp}`, borderRadius: 12,
+                    padding: "22px 18px", cursor: "pointer", textAlign: "center", fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                  }}>
+                    <div style={{ fontSize: 34 }}>👨‍👩‍👧</div>
+                    <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 19, color: T.ink }}>We're a family</div>
+                    <div style={{ fontSize: 13, color: T.inkSoft, marginTop: 4 }}>Read together at home — set family rewards like movie night</div>
+                  </button>
+                  <button onClick={() => { setClassForm({ ...classForm, kind: "class" }); setClassMode("student-join"); }} style={{
                     flex: "1 1 240px", background: T.card, border: `2px solid ${T.green}`, borderRadius: 12,
                     padding: "22px 18px", cursor: "pointer", textAlign: "center", fontFamily: "'Atkinson Hyperlegible', sans-serif",
                   }}>
@@ -2355,11 +2603,13 @@ export default function ShelfLife() {
             {/* Teacher setup */}
             {classMode === "teacher-setup" && !teaching && (
               <Ruled>
-                <div style={{ fontWeight: 700, marginBottom: 8, lineHeight: "28px" }}>Set up your class</div>
+                <div style={{ fontWeight: 700, marginBottom: 8, lineHeight: "28px" }}>
+                  {classForm.kind === "family" ? "Set up your family circle" : "Set up your class"}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 10 }}>
-                  <input style={input} placeholder="Your name * (e.g. Ms. Rivera)" maxLength={40} value={classForm.teacher}
+                  <input style={input} placeholder={classForm.kind === "family" ? "Your name * (e.g. Mom, Papá Luis)" : "Your name * (e.g. Ms. Rivera)"} maxLength={40} value={classForm.teacher}
                     onChange={(e) => setClassForm({ ...classForm, teacher: e.target.value })} />
-                  <input style={input} placeholder="Class name * (e.g. Period 3 ELA)" maxLength={50} value={classForm.className}
+                  <input style={input} placeholder={classForm.kind === "family" ? "Family name * (e.g. The Mondragóns)" : "Class name * (e.g. Period 3 ELA)"} maxLength={50} value={classForm.className}
                     onChange={(e) => setClassForm({ ...classForm, className: e.target.value })} />
                   <BookTitleInput
                     placeholder="Book you're reading * (type to search)"
@@ -2375,7 +2625,7 @@ export default function ShelfLife() {
                     style={{ ...btn(), opacity: classForm.teacher.trim() && classForm.className.trim() && classForm.book.trim() && !classBusy ? 1 : 0.5 }}
                     disabled={!classForm.teacher.trim() || !classForm.className.trim() || !classForm.book.trim() || classBusy}
                     onClick={createClass}>
-                    {classBusy ? "Creating…" : "Create class & get code"}
+                    {classBusy ? "Creating…" : classForm.kind === "family" ? "Create family circle & get code" : "Create class & get code"}
                   </button>
                   <button style={ghostBtn} onClick={() => setClassMode(null)}>Back</button>
                 </div>
@@ -2414,7 +2664,9 @@ export default function ShelfLife() {
                   alignItems: "center", flexWrap: "wrap", gap: 12,
                 }}>
                   <div>
-                    <div style={{ fontSize: 11, letterSpacing: "0.14em", color: T.blue, fontWeight: 700 }}>YOUR CLASS</div>
+                    <div style={{ fontSize: 11, letterSpacing: "0.14em", color: T.blue, fontWeight: 700 }}>
+                      {teaching.kind === "family" ? "YOUR FAMILY CIRCLE" : "YOUR CLASS"}
+                    </div>
                     <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22 }}>{teaching.className}</div>
                     <div style={{ fontSize: 14 }}>Reading <strong>“{teaching.book}”</strong> · {teaching.chapters} chapters · {teaching.teacher}</div>
                   </div>
@@ -2498,11 +2750,12 @@ export default function ShelfLife() {
                 {/* Class rewards manager */}
                 <div style={{ marginTop: 22 }}>
                   <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 20, margin: "0 0 4px" }}>
-                    Class rewards 🎁
+                    {teaching.kind === "family" ? "Family rewards 🎁" : "Class rewards 🎁"}
                   </h2>
                   <p style={{ fontSize: 12.5, color: T.inkSoft, margin: "0 0 10px" }}>
-                    Set your own prizes — pizza party, free-book coupon from a local bookstore, extra recess.
-                    Students see them instantly with a progress bar toward each one.
+                    {teaching.kind === "family"
+                      ? "Set your own prizes — movie night, ice cream trip, a new book. Your readers see them instantly with a progress bar."
+                      : "Set your own prizes — pizza party, free-book coupon from a local bookstore, extra recess. Students see them instantly with a progress bar toward each one."}
                   </p>
                   {(teaching.rewards || []).map((r) => (
                     <div key={r.id} style={{
@@ -2561,7 +2814,9 @@ export default function ShelfLife() {
                   border: `2px solid ${T.green}`, borderRadius: 14, padding: "16px 18px",
                   background: "#F0F5F0", marginBottom: 14,
                 }}>
-                  <div style={{ fontSize: 11, letterSpacing: "0.14em", color: T.green, fontWeight: 700 }}>YOUR CLASS</div>
+                  <div style={{ fontSize: 11, letterSpacing: "0.14em", color: T.green, fontWeight: 700 }}>
+                    {classroom.kind === "family" ? "YOUR FAMILY CIRCLE" : "YOUR CLASS"}
+                  </div>
                   <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22 }}>{classroom.className}</div>
                   <div style={{ fontSize: 14 }}>
                     Reading <strong>“{classroom.book}”</strong> with {classroom.teacher} · you're in as <strong>{classroom.name}</strong>
@@ -2676,7 +2931,7 @@ export default function ShelfLife() {
                 {(classroom.rewards || []).length > 0 && (
                   <div style={{ marginTop: 16 }}>
                     <h3 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 17, margin: "0 0 8px" }}>
-                      Class rewards from {classroom.teacher} 🎁
+                      {classroom.kind === "family" ? "Family rewards" : "Class rewards"} from {classroom.teacher} 🎁
                     </h3>
                     {classroom.rewards.map((r) => {
                       const passedCount = Object.values(classroom.quizzes || {}).filter((q) => q.passed).length;
@@ -3134,9 +3389,14 @@ export default function ShelfLife() {
               <div style={{ fontSize: 12, color: T.inkSoft }}>{reader.author}</div>
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+              <button style={{ ...(readAlong.on ? btn(T.stamp) : btn(T.green)), padding: "4px 12px", fontSize: 13 }}
+                onClick={() => (readAlong.on ? stopReadAlong() : startReadAlong())}>
+                {readAlong.on ? "⏹ Stop" : "🔊 Read to me"}
+              </button>
+              <button style={{ ...ghostBtn, padding: "4px 10px", fontSize: 13 }} onClick={startPractice}>🎙</button>
               <button aria-label="Smaller text" style={{ ...ghostBtn, padding: "4px 10px" }} onClick={() => setReaderFont(Math.max(13, readerFont - 2))}>A−</button>
               <button aria-label="Bigger text" style={{ ...ghostBtn, padding: "4px 10px" }} onClick={() => setReaderFont(Math.min(26, readerFont + 2))}>A+</button>
-              <button style={{ ...btn(T.stamp), padding: "6px 14px" }} onClick={() => setReader(null)}>Close</button>
+              <button style={{ ...btn(T.stamp), padding: "6px 14px" }} onClick={() => { stopReadAlong(); setWordCard(null); setReader(null); }}>Close</button>
             </div>
           </div>
 
@@ -3149,20 +3409,67 @@ export default function ShelfLife() {
                   💡 Tap any word to hear it and see what it means
                 </div>
                 <div style={{ fontSize: readerFont, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "'Atkinson Hyperlegible', sans-serif" }}>
-                  {reader.pages[reader.page].split(/(\s+)/).map((seg, i) =>
-                    /\S/.test(seg) ? (
-                      <span key={i} onClick={() => lookupWord(seg)}
-                        style={{ cursor: "pointer", borderRadius: 3 }}>
-                        {seg}
-                      </span>
-                    ) : (
-                      seg
-                    )
-                  )}
+                  {(() => {
+                    const segs = reader.pages[reader.page].split(/(\s+)/);
+                    let off = 0;
+                    return segs.map((seg, i) => {
+                      const start = off;
+                      off += seg.length;
+                      if (!/\S/.test(seg)) return seg;
+                      const lit = readAlong.on && readAlong.char >= start && readAlong.char < start + seg.length;
+                      return (
+                        <span key={i} onClick={() => lookupWord(seg)}
+                          style={{ cursor: "pointer", borderRadius: 3, background: lit ? "#FFE9A8" : "transparent", transition: "background .1s" }}>
+                          {seg}
+                        </span>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
           </div>
+
+          {practice && (
+            <div style={{ borderTop: `1.5px solid ${T.green}`, background: "#F0F5F0", padding: "12px 16px", maxHeight: "42vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <strong style={{ fontSize: 14 }}>🎙 Practice reading out loud</strong>
+                <button aria-label="Close practice" style={{ background: "none", border: "none", color: T.inkSoft, cursor: "pointer", fontSize: 15 }} onClick={() => { stopListening(); setPractice(null); }}>✕</button>
+              </div>
+              <p style={{ fontSize: 12, color: T.inkSoft, margin: "4px 0 8px" }}>
+                Read this passage out loud at your own pace — the app listens and shows which words it heard. No grades, just practice.
+              </p>
+              <div style={{ fontSize: 15, lineHeight: 1.7, background: T.card, border: `1px solid ${T.rule}`, borderRadius: 8, padding: "10px 12px" }}>
+                {practice.words.map((w, i) => (
+                  <span key={i} style={{
+                    marginRight: 5, borderRadius: 3, padding: "0 2px",
+                    background: practice.matched ? (practice.matched[i] ? "#CDE7D2" : "#F3DBD6") : "transparent",
+                  }}>
+                    {w}
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+                {!practice.listening && !practice.done && (
+                  <button style={btn(T.green)} onClick={listenPractice}>● Start reading (I'm listening)</button>
+                )}
+                {practice.listening && (
+                  <>
+                    <button style={btn(T.stamp)} onClick={stopListening}>⏹ I'm done</button>
+                    <span style={{ fontSize: 13, color: T.stamp, fontWeight: 700 }}>Listening… read the passage above</span>
+                  </>
+                )}
+                {practice.done && (
+                  <>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: practice.pct >= 70 ? T.green : T.ink }}>
+                      {practice.pct >= 70 ? `🎉 ${practice.pct}% — beautiful reading! +5 pts` : `${practice.pct}% heard — +5 pts for practicing. Green = heard, rosy = try those again.`}
+                    </span>
+                    <button style={ghostBtn} onClick={listenPractice}>Try again ↻</button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {wordCard && (
             <div style={{ borderTop: `1.5px solid ${T.blue}`, background: "#F5F8FC", padding: "10px 16px" }}>
