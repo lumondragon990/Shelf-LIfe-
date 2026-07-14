@@ -586,6 +586,7 @@ export default function ShelfLife() {
   const [roster, setRoster] = useState(null);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [classBusy, setClassBusy] = useState(false);
+  const [chapQuiz, setChapQuiz] = useState(null); // {chapter, loading, questions, answers, submitted, score, earned}
 
   useEffect(() => {
     loadShelf().then((d) => {
@@ -697,11 +698,20 @@ export default function ShelfLife() {
         setClassBusy(false);
         return;
       }
-      const me = { name, chapter: 0, updatedAt: Date.now() };
+      const me = { name, chapter: 0, quizzes: {}, updatedAt: Date.now() };
       await publishClassProgress(code, me);
-      persist({ classroom: { ...cls, code, name, chapter: 0 } });
+      const patch = { classroom: { ...cls, code, name, chapter: 0, quizzes: {} } };
+      // Link the class book onto My Shelf so progress lives in both places
+      if (!books.some((x) => x.classCode === code)) {
+        const pages = (await lookupPages(cls.book, "")) || cls.chapters * 12;
+        patch.books = [{
+          id: uid(), classCode: code, title: cls.book, author: "",
+          pages, status: "reading", currentPage: 0, rating: 0, addedAt: Date.now(), finishedAt: null,
+        }, ...books];
+      }
+      persist(patch);
       setClassMode(null);
-      flash(`Welcome to ${cls.className}! 📚`);
+      flash(`Welcome to ${cls.className}! Your class book is on your shelf 📚`);
     } catch {
       flash("Couldn't join — try again");
     }
@@ -713,14 +723,70 @@ export default function ShelfLife() {
     const chapter = Math.max(0, Math.min(classroom.chapters, (classroom.chapter || 0) + delta));
     if (chapter === classroom.chapter) return;
     const next = { ...classroom, chapter };
-    persist({ classroom: next, readDays: delta > 0 ? withToday(readDays) : readDays });
+    const finishedNow = chapter === classroom.chapters;
+    // Sync the linked book on My Shelf proportionally
+    let earned = 0;
+    const nextBooks = books.map((x) => {
+      if (x.classCode !== classroom.code) return x;
+      if (finishedNow && x.status !== "done") { earned = 25; return { ...x, currentPage: x.pages, status: "done", finishedAt: Date.now() }; }
+      const cp = Math.round((chapter / classroom.chapters) * x.pages);
+      return { ...x, currentPage: cp, status: x.status === "done" ? "done" : "reading" };
+    });
+    persist({ classroom: next, books: nextBooks, points: points + earned, readDays: delta > 0 ? withToday(readDays) : readDays });
     try {
-      await publishClassProgress(classroom.code, { name: classroom.name, chapter, updatedAt: Date.now() });
+      await publishClassProgress(classroom.code, { name: classroom.name, chapter, quizzes: classroom.quizzes || {}, updatedAt: Date.now() });
     } catch { /* will sync next update */ }
-    if (chapter === classroom.chapters) {
+    if (finishedNow) {
       celebrate();
-      flash("You finished the class book! 🎉");
+      flash("You finished the class book! +25 pts 🎉");
+    } else if (delta > 0) {
+      flash(`Chapter ${chapter} done — take its quiz below! 🧠`);
     }
+  };
+
+  // ----- Chapter quizzes (AI-generated per chapter; teacher sees the scores) -----
+  const startChapterQuiz = async (n) => {
+    if (!classroom) return;
+    setChapQuiz({ chapter: n, loading: true, questions: null, answers: [], submitted: false });
+    try {
+      const response = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 700,
+          messages: [{
+            role: "user",
+            content: `Create a 3-question multiple-choice quiz about chapter ${n} of the book "${classroom.book}" for a young reader who just finished that chapter. Friendly tone, not a test. If you are not confident about that exact chapter's contents, ask questions about the story up to that point that anyone who has read through chapter ${n} could answer. Each question has exactly 4 options and one correct answer. Respond with ONLY a JSON array, no markdown: [{"q":"...","options":["...","...","...","..."],"answer":0}]`,
+          }],
+        }),
+      });
+      const data = await response.json();
+      const text = (data.content || []).filter((i) => i.type === "text").map((i) => i.text).join("\n");
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const valid = Array.isArray(parsed) && parsed.length >= 2 && parsed.every((q) => q.q && q.options?.length === 4);
+      if (!valid) throw new Error("bad quiz");
+      setChapQuiz((prev) => prev && { ...prev, loading: false, questions: parsed.slice(0, 3) });
+    } catch {
+      flash("Chapter quizzes need the AI key — the rest still tracks! 🧠");
+      setChapQuiz(null);
+    }
+  };
+
+  const submitChapterQuiz = async () => {
+    if (!chapQuiz?.questions || !classroom) return;
+    const score = chapQuiz.questions.reduce((s2, q, i) => s2 + (chapQuiz.answers[i] === q.answer ? 1 : 0), 0);
+    const total = chapQuiz.questions.length;
+    const prev = (classroom.quizzes || {})[chapQuiz.chapter];
+    const earned = prev ? 0 : score * 5;
+    const passed = score >= total - 1 || prev?.passed || false;
+    const quizzes = { ...(classroom.quizzes || {}), [chapQuiz.chapter]: { score: Math.max(score, prev?.score || 0), total, passed, at: Date.now() } };
+    persist({ classroom: { ...classroom, quizzes }, points: points + earned });
+    setChapQuiz((c) => c && { ...c, submitted: true, score, earned });
+    if (score >= total - 1) celebrate();
+    try {
+      await publishClassProgress(classroom.code, { name: classroom.name, chapter: classroom.chapter, quizzes, updatedAt: Date.now() });
+    } catch { /* syncs next time */ }
   };
 
   const loadRoster = async (code) => {
@@ -1219,7 +1285,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v12</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v13</span>
         </p>
       </header>
 
@@ -2285,6 +2351,20 @@ export default function ShelfLife() {
                           background: finished ? T.green : T.blue, transition: "width .3s",
                         }} />
                       </div>
+                      {s.quizzes && Object.keys(s.quizzes).length > 0 && (
+                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 7 }}>
+                          {Object.entries(s.quizzes).sort((a, b) => Number(a[0]) - Number(b[0])).map(([n, q]) => (
+                            <span key={n} style={{
+                              fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 9px",
+                              background: q.passed ? "#E5F0E7" : "#F6E9E6",
+                              color: q.passed ? T.green : T.stamp,
+                              border: `1px solid ${q.passed ? T.green : T.stamp}`,
+                            }}>
+                              🧠 Ch{n}: {q.score}/{q.total}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2337,8 +2417,81 @@ export default function ShelfLife() {
                     }} />
                   </div>
                   <div style={{ fontSize: 12, color: T.inkSoft, lineHeight: "28px" }}>
-                    Your teacher can see your chapter — that's how they know when to help, not to rank you.
+                    Your teacher can see your chapter and quiz scores — that's how they know when to help, not to rank you.
                   </div>
+
+                  {/* Chapter quizzes */}
+                  {(classroom.chapter || 0) > 0 && (
+                    <div style={{ marginTop: 10, paddingBottom: 4 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, lineHeight: "28px" }}>Chapter quizzes 🧠 <span style={{ fontWeight: 400, fontSize: 12, color: T.inkSoft }}>+5 pts per correct answer</span></div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                        {Array.from({ length: classroom.chapter }, (_, i) => i + 1).map((n) => {
+                          const q = (classroom.quizzes || {})[n];
+                          return (
+                            <button key={n} onClick={() => startChapterQuiz(n)}
+                              style={{
+                                padding: "5px 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer", fontWeight: 700,
+                                border: `1.5px solid ${q ? (q.passed ? T.green : T.stamp) : T.blue}`,
+                                background: q ? (q.passed ? "#E5F0E7" : "#F6E9E6") : "transparent",
+                                color: q ? (q.passed ? T.green : T.stamp) : T.blue,
+                                fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                              }}>
+                              Ch {n}{q ? ` · ${q.score}/${q.total}` : " · take quiz"}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {chapQuiz && (
+                        <div style={{ marginTop: 12, border: `1.5px solid ${T.blue}`, borderRadius: 10, background: "#F5F8FC", padding: "14px 16px" }}>
+                          {chapQuiz.loading && <p style={{ margin: 0, color: T.inkSoft }}>Writing 3 questions about chapter {chapQuiz.chapter}…</p>}
+                          {!chapQuiz.loading && chapQuiz.questions && !chapQuiz.submitted && (
+                            <div>
+                              <strong>Chapter {chapQuiz.chapter} quiz</strong>
+                              {chapQuiz.questions.map((q, qi) => (
+                                <div key={qi} style={{ margin: "10px 0" }}>
+                                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{qi + 1}. {q.q}</div>
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 6 }}>
+                                    {q.options.map((opt, oi) => (
+                                      <button key={oi}
+                                        onClick={() => { const answers = [...chapQuiz.answers]; answers[qi] = oi; setChapQuiz({ ...chapQuiz, answers }); }}
+                                        style={{
+                                          textAlign: "left", padding: "8px 10px", borderRadius: 8, fontSize: 13, cursor: "pointer",
+                                          border: `1.5px solid ${chapQuiz.answers[qi] === oi ? T.blue : T.rule}`,
+                                          background: chapQuiz.answers[qi] === oi ? "#DDE8F6" : T.card,
+                                          color: T.ink, fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                                        }}>
+                                        {opt}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button
+                                  style={{ ...btn(), opacity: chapQuiz.answers.filter((a) => a !== undefined).length === chapQuiz.questions.length ? 1 : 0.5 }}
+                                  disabled={chapQuiz.answers.filter((a) => a !== undefined).length !== chapQuiz.questions.length}
+                                  onClick={submitChapterQuiz}>
+                                  Check my answers
+                                </button>
+                                <button style={ghostBtn} onClick={() => setChapQuiz(null)}>Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                          {chapQuiz.submitted && (
+                            <div style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: 34 }}>{chapQuiz.score >= chapQuiz.questions.length - 1 ? "🎉" : "📖"}</div>
+                              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22 }}>{chapQuiz.score} / {chapQuiz.questions.length}</div>
+                              <div style={{ fontSize: 13, margin: "4px 0 10px" }}>
+                                {chapQuiz.earned ? `+${chapQuiz.earned} pts! ` : ""}{chapQuiz.score >= chapQuiz.questions.length - 1 ? "You really read that chapter." : "Flip back through the chapter and try again anytime."}
+                              </div>
+                              <button style={btn()} onClick={() => setChapQuiz(null)}>Done</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </Ruled>
 
                 <button style={{ ...ghostBtn, marginTop: 12, borderColor: T.stamp, color: T.stamp }}
