@@ -274,6 +274,29 @@ function matchGuten(list, title) {
   return null;
 }
 
+// ---------- Voice picker: find the calmest, most natural voice on this device ----------
+const FEMALE_RE = /samantha|victoria|zira|jenny|aria|michelle|sonia|emma|ava|allison|susan|karen|moira|tessa|serena|libby|joana|paulina|m[oó]nica|helena|sabina|salome|francisca|female/i;
+const MALE_RE = /david|mark|\bguy\b|christopher|eric|daniel|alex\b|fred|jorge|diego|juan|pablo|george|james|ryan|thomas|aaron|roger|brandon|arthur|liam|alvaro|male/i;
+
+function pickVoice(lang, pref) {
+  try {
+    const voices = window.speechSynthesis?.getVoices?.() || [];
+    const base = (lang || "en").slice(0, 2).toLowerCase();
+    const pool = voices.filter((v) => (v.lang || "").toLowerCase().startsWith(base));
+    if (!pool.length) return null;
+    const genderRe = pref === "male" ? MALE_RE : FEMALE_RE;
+    const quality = (v) =>
+      (/natural/i.test(v.name) ? 8 : 0) +
+      (/neural|premium|enhanced|hd/i.test(v.name) ? 6 : 0) +
+      (/google/i.test(v.name) ? 4 : 0) +
+      (/microsoft/i.test(v.name) ? 2 : 0) +
+      (genderRe.test(v.name) ? 20 : 0);
+    return [...pool].sort((a, b) => quality(b) - quality(a))[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- Digital shelf: free public-domain classics (Project Gutenberg) ----------
 const FEATURED_CLASSICS = [
   { gid: 46, title: "A Christmas Carol", author: "Charles Dickens", note: "Short & beloved — a perfect first classic." },
@@ -389,9 +412,9 @@ async function loadShelf() {
   try {
     const r = await storage.get("shelf-data-v1");
     const d = r ? JSON.parse(r.value) : {};
-    return { books: d.books || [], readDays: d.readDays || [], goalDays: d.goalDays || 4, quiz: d.quiz || null, points: d.points || 0, quizResults: d.quizResults || {}, classroom: d.classroom || null, teaching: d.teaching || null, digitalShelf: d.digitalShelf || [], myWords: d.myWords || [] };
+    return { books: d.books || [], readDays: d.readDays || [], goalDays: d.goalDays || 4, quiz: d.quiz || null, points: d.points || 0, quizResults: d.quizResults || {}, classroom: d.classroom || null, teaching: d.teaching || null, digitalShelf: d.digitalShelf || [], myWords: d.myWords || [], voicePref: d.voicePref || "female" };
   } catch {
-    return { books: [], readDays: [], goalDays: 4, quiz: null, points: 0, quizResults: {}, classroom: null, teaching: null, digitalShelf: [], myWords: [] };
+    return { books: [], readDays: [], goalDays: 4, quiz: null, points: 0, quizResults: {}, classroom: null, teaching: null, digitalShelf: [], myWords: [], voicePref: "female" };
   }
 }
 async function saveShelf(data) {
@@ -577,6 +600,7 @@ export default function ShelfLife() {
   const [readerFont, setReaderFont] = useState(17);
   const [wordCard, setWordCard] = useState(null); // {word, loading, phonetic, pos, definition, notFound}
   const [myWords, setMyWords] = useState([]); // [{word, definition, at}]
+  const [voicePref, setVoicePref] = useState("female");
   const [wordQuiz, setWordQuiz] = useState(null); // {questions, answers, submitted, score}
   const [showWords, setShowWords] = useState(false);
   const [recap, setRecap] = useState(null); // {bookId, loading, text}
@@ -609,6 +633,9 @@ export default function ShelfLife() {
       setTeaching(d.teaching || null);
       setDigitalShelf(d.digitalShelf || []);
       setMyWords(d.myWords || []);
+      setVoicePref(d.voicePref || "female");
+      // Warm up the voice list (it loads async in most browsers)
+      try { window.speechSynthesis?.getVoices?.(); window.speechSynthesis.onvoiceschanged = () => {}; } catch { /* noop */ }
       if (d.quiz) setPickTag(topTag(scoreQuiz(d.quiz).tagScores));
       setLoaded(true);
     });
@@ -852,7 +879,7 @@ export default function ShelfLife() {
   };
 
   const persist = (patch) => {
-    const next = { books, readDays, goalDays, quiz, points, quizResults, classroom, teaching, digitalShelf, myWords, ...patch };
+    const next = { books, readDays, goalDays, quiz, points, quizResults, classroom, teaching, digitalShelf, myWords, voicePref, ...patch };
     setBooks(next.books);
     setReadDays(next.readDays);
     setGoalDays(next.goalDays);
@@ -863,6 +890,7 @@ export default function ShelfLife() {
     setTeaching(next.teaching);
     setDigitalShelf(next.digitalShelf);
     setMyWords(next.myWords);
+    setVoicePref(next.voicePref);
     saveShelf(next);
   };
   const withToday = (days) => (days.includes(todayKey()) ? days : [...days, todayKey()]);
@@ -1132,6 +1160,31 @@ export default function ShelfLife() {
 
   const removeDigital = (gid) => persist({ digitalShelf: digitalShelf.filter((x) => x.gid !== gid) });
 
+  // ----- Voice picker: hunts down the most natural voice on this device -----
+  const FEMALE_HINTS = ["aria", "jenny", "michelle", "emma", "ava", "sonia", "libby", "samantha", "zira", "susan", "natasha", "joanna", "salli", "allison", "paulina", "helena", "sabina", "dalia", "female", "google us english", "google espa"];
+  const MALE_HINTS = ["guy", "davis", "andrew", "brian", "christopher", "eric", "roger", "daniel", "alex", "david", "mark", "george", "ryan", "jorge", "diego", "miguel", "male"];
+  const pickVoice = (langPrefix) => {
+    const lp = (langPrefix || "en").toLowerCase().slice(0, 2);
+    const pool = voices.filter((v) => v.lang?.toLowerCase().startsWith(lp));
+    const candidates = pool.length ? pool : voices;
+    const hints = voicePref === "male" ? MALE_HINTS : FEMALE_HINTS;
+    const antiHints = voicePref === "male" ? FEMALE_HINTS : MALE_HINTS;
+    let best = null, bestScore = -1;
+    for (const v of candidates) {
+      const n = (v.name || "").toLowerCase();
+      let sc = 0;
+      if (n.includes("natural")) sc += 8;
+      if (n.includes("neural")) sc += 8;
+      if (n.includes("online")) sc += 3;
+      if (n.includes("google")) sc += 5;
+      if (n.includes("premium") || n.includes("enhanced")) sc += 5;
+      if (hints.some((h) => n.includes(h))) sc += 6;
+      if (antiHints.some((h) => n.includes(h))) sc -= 6;
+      if (sc > bestScore) { bestScore = sc; best = v; }
+    }
+    return best;
+  };
+
   // ----- Read to me: speaks the page, highlighting each word (karaoke mode) -----
   const startReadAlong = () => {
     if (!reader?.pages?.length) return;
@@ -1140,7 +1193,10 @@ export default function ShelfLife() {
       const u = new SpeechSynthesisUtterance(text);
       const accents = (text.match(/[áéíóúñü]/gi) || []).length;
       u.lang = accents > 4 ? "es-ES" : "en-US";
-      u.rate = 0.85;
+      const v = pickVoice(u.lang, voicePref);
+      if (v) u.voice = v;
+      u.rate = 0.88;
+      u.pitch = 0.95;
       u.onboundary = (e) => {
         if (e.name === "word" || e.charIndex !== undefined) setReadAlong({ on: true, char: e.charIndex });
       };
@@ -1208,7 +1264,10 @@ export default function ShelfLife() {
     try {
       const u = new SpeechSynthesisUtterance(word);
       u.lang = /[áéíóúñü]/i.test(word) ? "es-ES" : "en-US";
-      u.rate = 0.85;
+      const v = pickVoice(u.lang, voicePref);
+      if (v) u.voice = v;
+      u.rate = 0.8;
+      u.pitch = 0.95;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     } catch { /* some browsers block speech; the card still shows meaning */ }
@@ -1544,7 +1603,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v16</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v17</span>
         </p>
       </header>
 
@@ -3389,11 +3448,20 @@ export default function ShelfLife() {
               <div style={{ fontSize: 12, color: T.inkSoft }}>{reader.author}</div>
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+              <button title={voicePref === "female" ? "Voice: calm female — tap for male" : "Voice: calm male — tap for female"}
+                style={{ ...ghostBtn, padding: "4px 10px", fontSize: 15 }}
+                onClick={() => { stopReadAlong(); persist({ voicePref: voicePref === "female" ? "male" : "female" }); flash(voicePref === "female" ? "Voice: calm male 👨" : "Voice: calm female 👩"); }}>
+                {voicePref === "female" ? "👩" : "👨"}
+              </button>
               <button style={{ ...(readAlong.on ? btn(T.stamp) : btn(T.green)), padding: "4px 12px", fontSize: 13 }}
                 onClick={() => (readAlong.on ? stopReadAlong() : startReadAlong())}>
                 {readAlong.on ? "⏹ Stop" : "🔊 Read to me"}
               </button>
               <button style={{ ...ghostBtn, padding: "4px 10px", fontSize: 13 }} onClick={startPractice}>🎙</button>
+              <button title="Switch reading voice" style={{ ...ghostBtn, padding: "4px 10px", fontSize: 13 }}
+                onClick={() => { const nextV = voicePref === "female" ? "male" : "female"; persist({ voicePref: nextV }); stopReadAlong(); flash(nextV === "male" ? "Voice: calm male 👨" : "Voice: calm female 👩"); }}>
+                {voicePref === "female" ? "👩" : "👨"}
+              </button>
               <button aria-label="Smaller text" style={{ ...ghostBtn, padding: "4px 10px" }} onClick={() => setReaderFont(Math.max(13, readerFont - 2))}>A−</button>
               <button aria-label="Bigger text" style={{ ...ghostBtn, padding: "4px 10px" }} onClick={() => setReaderFont(Math.min(26, readerFont + 2))}>A+</button>
               <button style={{ ...btn(T.stamp), padding: "6px 14px" }} onClick={() => { stopReadAlong(); setWordCard(null); setReader(null); }}>Close</button>
