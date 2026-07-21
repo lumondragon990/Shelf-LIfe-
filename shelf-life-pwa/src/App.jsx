@@ -1267,25 +1267,26 @@ export default function ShelfLife() {
   const MALE_HINTS = ["guy", "davis", "andrew", "brian", "christopher", "eric", "roger", "daniel", "alex", "david", "mark", "george", "ryan", "jorge", "diego", "miguel", "male"];
   const pickVoice = (langPrefix) => {
     const lp = (langPrefix || "en").toLowerCase().slice(0, 2);
-    const pool = voices.filter((v) => v.lang?.toLowerCase().startsWith(lp));
-    const candidates = pool.length ? pool : voices;
+    // ONLY voices installed on this device — remote "premium/natural" voices can
+    // report success while producing silence (we learned this the hard way).
+    const local = voices.filter((v) => v.localService);
+    const pool = local.filter((v) => v.lang?.toLowerCase().startsWith(lp));
+    const candidates = pool.length ? pool : local;
+    if (!candidates.length) return null; // no locals: use the system default (audible)
     const hints = voicePref === "male" ? MALE_HINTS : FEMALE_HINTS;
     const antiHints = voicePref === "male" ? FEMALE_HINTS : MALE_HINTS;
     let best = null, bestScore = -1;
     for (const v of candidates) {
       const n = (v.name || "").toLowerCase();
       let sc = 0;
-      if (n.includes("natural")) sc += 8;
-      if (n.includes("neural")) sc += 8;
-      if (v.localService) sc += 7; // local voices actually make sound reliably
-      if (n.includes("google")) sc += 3;
-      if (n.includes("premium") || n.includes("enhanced")) sc += 4;
+      if (n.includes("natural") || n.includes("neural")) sc += 4;
+      if (n.includes("premium") || n.includes("enhanced")) sc += 3;
       if (hints.some((h) => n.includes(h))) sc += 6;
       if (antiHints.some((h) => n.includes(h))) sc -= 6;
       if (sc > bestScore) { bestScore = sc; best = v; }
     }
     return best;
-  };
+  };;
 
   // Robust speech: Chrome swallows speak() right after cancel(), gets stuck in a
   // paused state, garbage-collects utterances mid-speech, and some premium voices
@@ -1950,7 +1951,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v23</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v24</span>
         </p>
       </header>
 
