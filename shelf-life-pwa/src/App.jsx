@@ -417,9 +417,9 @@ async function loadShelf() {
   try {
     const r = await storage.get("shelf-data-v1");
     const d = r ? JSON.parse(r.value) : {};
-    return { books: d.books || [], readDays: d.readDays || [], goalDays: d.goalDays || 4, quiz: d.quiz || null, points: d.points || 0, quizResults: d.quizResults || {}, classroom: d.classroom || null, teaching: d.teaching || null, digitalShelf: d.digitalShelf || [], myWords: d.myWords || [], voicePref: d.voicePref2 || "system", onboarded: d.onboarded || false, userName: d.userName || "", role: d.role || "" };
+    return { books: d.books || [], readDays: d.readDays || [], goalDays: d.goalDays || 4, quiz: d.quiz || null, points: d.points || 0, quizResults: d.quizResults || {}, classroom: d.classroom || null, teaching: d.teaching || null, digitalShelf: d.digitalShelf || [], myWords: d.myWords || [], voicePref: d.voicePref2 || "system", newsDigest: d.newsDigest || null, onboarded: d.onboarded || false, userName: d.userName || "", role: d.role || "" };
   } catch {
-    return { books: [], readDays: [], goalDays: 4, quiz: null, points: 0, quizResults: {}, classroom: null, teaching: null, digitalShelf: [], myWords: [], voicePref: "system", onboarded: false, userName: "", role: "" };
+    return { books: [], readDays: [], goalDays: 4, quiz: null, points: 0, quizResults: {}, classroom: null, teaching: null, digitalShelf: [], myWords: [], voicePref: "system", newsDigest: null, onboarded: false, userName: "", role: "" };
   }
 }
 async function saveShelf(data) {
@@ -602,6 +602,8 @@ export default function ShelfLife() {
   const [freshBooks, setFreshBooks] = useState(null);
   const [freshLoading, setFreshLoading] = useState(false);
   const [soundCheck, setSoundCheck] = useState(null); // {lines: [...], running}
+  const [newsDigest, setNewsDigest] = useState(null); // {month: "2026-07", data}
+  const [newsLoading, setNewsLoading] = useState(false);
   const [points, setPoints] = useState(0);
   const [quizResults, setQuizResults] = useState({}); // bookId -> {score, total, passed, at}
   const [bookQuiz, setBookQuiz] = useState(null); // {bookId, title, loading, questions, answers, submitted, score, earned}
@@ -623,6 +625,7 @@ export default function ShelfLife() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [wordQuiz, setWordQuiz] = useState(null); // {questions, answers, submitted, score}
   const [showWords, setShowWords] = useState(false);
+  const [selectedWord, setSelectedWord] = useState(null); // a myWords entry being reviewed
   const [recap, setRecap] = useState(null); // {bookId, loading, text}
   const [readAlong, setReadAlong] = useState({ on: false, char: -1 });
   const [practice, setPractice] = useState(null); // {passage, words, listening, results, matched, done}
@@ -654,6 +657,7 @@ export default function ShelfLife() {
       setDigitalShelf(d.digitalShelf || []);
       setMyWords(d.myWords || []);
       setVoicePref(d.voicePref2 || "system");
+      setNewsDigest(d.newsDigest || null);
       setOnboarded(d.onboarded || false);
       setUserName(d.userName || "");
       setRole(d.role || "");
@@ -963,6 +967,7 @@ export default function ShelfLife() {
     setDigitalShelf(next.digitalShelf);
     setMyWords(next.myWords);
     setVoicePref(next.voicePref2 || next.voicePref || "system");
+    setNewsDigest(next.newsDigest !== undefined ? next.newsDigest : null);
     setOnboarded(next.onboarded);
     setUserName(next.userName);
     setRole(next.role);
@@ -1229,8 +1234,8 @@ export default function ShelfLife() {
   };
 
   // ----- Digital shelf: search, add, and read public-domain books -----
-  const searchGutenberg = async () => {
-    const q = gutenQuery.trim();
+  const searchGutenberg = async (qOverride) => {
+    const q = (typeof qOverride === "string" ? qOverride : gutenQuery).trim();
     if (!q) return;
     setGutenLoading(true);
     try {
@@ -1271,9 +1276,10 @@ export default function ShelfLife() {
     // FRESH list at the moment of speaking — cached voice objects can go stale
     // and stale voices fail silently (the great sound mystery of this app).
     const all = window.speechSynthesis?.getVoices?.() || [];
-    const local = all.filter((v) => v.localService);
-    const pool = local.filter((v) => v.lang?.toLowerCase().startsWith(lp));
-    const candidates = pool.length ? pool : local;
+    // Prefer the prettiest voice available RIGHT NOW (fresh objects); the
+    // watchdog in safeSpeak falls back to the default voice if one plays silent.
+    const pool = all.filter((v) => v.lang?.toLowerCase().startsWith(lp));
+    const candidates = pool.length ? pool : all;
     if (!candidates.length) return null;
     const hints = voicePref === "male" ? MALE_HINTS : FEMALE_HINTS;
     const antiHints = voicePref === "male" ? FEMALE_HINTS : MALE_HINTS;
@@ -1281,12 +1287,16 @@ export default function ShelfLife() {
     for (const v of candidates) {
       const n = (v.name || "").toLowerCase();
       let sc = 0;
+      if (n.includes("natural")) sc += 8;
+      if (n.includes("neural")) sc += 8;
+      if (n.includes("premium") || n.includes("enhanced")) sc += 5;
+      if (v.localService) sc += 2;
       if (hints.some((h) => n.includes(h))) sc += 6;
       if (antiHints.some((h) => n.includes(h))) sc -= 6;
       if (sc > bestScore) { bestScore = sc; best = v; }
     }
     return best;
-  };;;
+  };
 
   // Robust speech: Chrome swallows speak() right after cancel(), gets stuck in a
   // paused state, garbage-collects utterances mid-speech, and some premium voices
@@ -1553,6 +1563,39 @@ export default function ShelfLife() {
     if (earned) { celebrate(); flash("You finished the whole book! +25 pts 🎉"); }
   };
 
+  // ----- The Reading Room: this month in the reading world (AI-curated, cached monthly) -----
+  const loadReadingRoom = async () => {
+    const monthKey = new Date().toISOString().slice(0, 7);
+    if (newsDigest?.month === monthKey || newsLoading) return;
+    setNewsLoading(true);
+    try {
+      const monthName = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
+      const response = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5", max_tokens: 1200,
+          messages: [{
+            role: "user",
+            content: `Create a fun "this month in the reading world" digest for ${monthName}, for beginner readers. Use only REAL, verifiable literary history — author birthdays this month, famous book publication anniversaries this month, classic authors born this month. NO invented current events, NO made-up news. Warm, playful, 1-2 sentences each. Respond with ONLY JSON, no markdown: {"anniversaries":[{"emoji":"🎂","title":"...","blurb":"..."}] (exactly 5 items),"classic":{"title":"...","author":"...","why":"one sentence on why this month is perfect for it"},"challenge":"a one-sentence reading challenge for this month tied to one of the items above"}`,
+          }],
+        }),
+      });
+      const data = await response.json();
+      const text = (data.content || []).filter((x) => x.type === "text").map((x) => x.text).join("\n");
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      if (!parsed.anniversaries) throw new Error("bad digest");
+      persist({ newsDigest: { month: monthKey, data: parsed } });
+    } catch {
+      flash("The Reading Room needs a moment — try again");
+    }
+    setNewsLoading(false);
+  };
+  useEffect(() => {
+    if (tab === "news") loadReadingRoom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   // ----- Sound check: diagnoses audio on THIS device, results on screen -----
   const runSoundCheck = () => {
     const lines = [];
@@ -1618,10 +1661,12 @@ export default function ShelfLife() {
           const t = (v.title || "").toLowerCase();
           if (!v.title || seen.has(t)) continue;
           seen.add(t);
+          const cover = v.imageLinks?.smallThumbnail?.replace("http://", "https://") || null;
+          if (!cover) continue; // real covers only — it's a bookstore window, not a filing cabinet
           out.push({
             key: it.id, title: v.title, author: (v.authors || [])[0] || "",
             pages: v.pageCount || "", year: (v.publishedDate || "").slice(0, 4),
-            cover: v.imageLinks?.smallThumbnail?.replace("http://", "https://") || null,
+            cover,
           });
           if (out.length >= 8) break;
         }
@@ -1650,7 +1695,7 @@ export default function ShelfLife() {
         const d3 = await r3.json();
         for (const doc of d3.docs || []) {
           const t = (doc.title || "").toLowerCase();
-          if (!doc.title || seen.has(t)) continue;
+          if (!doc.title || !doc.cover_i || seen.has(t)) continue; // covers only
           seen.add(t);
           out.push({
             key: doc.key, title: doc.title, author: (doc.author_name || [])[0] || "",
@@ -1970,7 +2015,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v25</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v27</span>
         </p>
       </header>
 
@@ -2164,12 +2209,24 @@ export default function ShelfLife() {
                           )}
                           <div style={{ fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, marginTop: 5, height: 28, overflow: "hidden" }}>{b.title}</div>
                           <div style={{ fontSize: 10, color: T.inkSoft }}>{b.author}</div>
-                          <button
-                            style={{ ...(owned ? ghostBtn : btn(T.green)), marginTop: 5, padding: "3px 10px", fontSize: 10.5, opacity: owned ? 0.6 : 1 }}
-                            disabled={owned}
-                            onClick={() => addBook({ title: b.title, author: b.author, pages: b.pages || 200, status: "want" })}>
-                            {owned ? "✓" : "+ Shelf"}
-                          </button>
+                          <div style={{ display: "flex", gap: 4, justifyContent: "center", marginTop: 5 }}>
+                            <button
+                              style={{ ...(owned ? ghostBtn : btn(T.green)), padding: "3px 8px", fontSize: 10.5, opacity: owned ? 0.6 : 1 }}
+                              disabled={owned}
+                              onClick={() => addBook({ title: b.title, author: b.author, pages: b.pages || 200, status: "want" })}>
+                              {owned ? "✓" : "+ Shelf"}
+                            </button>
+                            <button
+                              style={{ ...ghostBtn, padding: "3px 8px", fontSize: 10.5 }}
+                              onClick={() => fetchBlurb(b.key, b.title, b.author)}>
+                              {blurbs[b.key]?.open ? "▲" : "About?"}
+                            </button>
+                          </div>
+                          {blurbs[b.key]?.open && (
+                            <div style={{ fontSize: 10.5, textAlign: "left", marginTop: 5, background: "#F5F8FC", borderRadius: 6, padding: "5px 7px" }}>
+                              {blurbs[b.key].loading ? "…" : blurbs[b.key].text}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2376,15 +2433,36 @@ export default function ShelfLife() {
                 </p>
 
                 {showWords && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-                    {myWords.slice(0, 60).map((w) => (
-                      <span key={w.word} title={w.definition} style={{
-                        fontSize: 13, fontWeight: 700, color: T.blue, background: "#E8EEF7",
-                        borderRadius: 999, padding: "3px 12px", cursor: "default",
-                      }}>
-                        {w.word}
-                      </span>
-                    ))}
+                  <div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                      {myWords.slice(0, 60).map((w) => (
+                        <button key={w.word}
+                          onClick={() => {
+                            speakWord(w.word);
+                            setSelectedWord(selectedWord?.word === w.word ? null : w);
+                          }}
+                          style={{
+                            fontSize: 13, fontWeight: 700, borderRadius: 999, padding: "3px 12px", cursor: "pointer",
+                            border: `1.5px solid ${selectedWord?.word === w.word ? T.blue : "transparent"}`,
+                            color: T.blue, background: "#E8EEF7",
+                            fontFamily: "'Atkinson Hyperlegible', sans-serif",
+                          }}>
+                          {w.word} 🔊
+                        </button>
+                      ))}
+                    </div>
+                    {selectedWord && (
+                      <div style={{ marginTop: 10, border: `1.5px solid ${T.blue}`, borderRadius: 10, background: "#F5F8FC", padding: "10px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                          <strong style={{ fontSize: 17 }}>{selectedWord.word}</strong>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button style={{ ...ghostBtn, padding: "4px 11px", fontSize: 12 }} onClick={() => speakWord(selectedWord.word)}>🔊 Hear it again</button>
+                            <button aria-label="Close" style={{ background: "none", border: "none", color: T.inkSoft, cursor: "pointer", fontSize: 15 }} onClick={() => setSelectedWord(null)}>✕</button>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 14, marginTop: 4 }}>{selectedWord.definition}</div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3891,6 +3969,7 @@ export default function ShelfLife() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
               {[
                 ["personality", "🎭", "Personality", "Discover your reading type and get matched books"],
+                ["news", "📰", "The Reading Room", "This month in the reading world — anniversaries, celebrations & a challenge"],
                 ["foryou", "📖", "For you", "What to read next, based on books you finished"],
                 ...(SCHOOL_MODE ? [] : [["club", "💬", "Book club", "The community wall and real-world meetups"]]),
                 ["rewards", "🎁", "Rewards", "Your points, levels, streak gifts and the vault"],
@@ -3999,6 +4078,72 @@ export default function ShelfLife() {
             </div>
           </div>
 
+        )}
+
+        {/* ---------------- THE READING ROOM (news) ---------------- */}
+        {tab === "news" && (
+          <div style={{ animation: "rise .3s ease" }}>
+            <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 22, margin: "0 0 2px" }}>
+              📰 The Reading Room
+            </h2>
+            <p style={{ margin: "0 0 14px", fontSize: 13, color: T.inkSoft }}>
+              {new Date().toLocaleString("en-US", { month: "long", year: "numeric" })} in the reading world
+            </p>
+
+            {newsLoading && <p style={{ color: T.inkSoft }}>Setting up this month's Reading Room… 📚</p>}
+
+            {newsDigest?.data && (
+              <div>
+                {/* Anniversaries */}
+                {(newsDigest.data.anniversaries || []).map((a, i) => (
+                  <div key={i} style={{
+                    background: T.paper, border: `1px solid ${T.rule}`, borderRadius: 10,
+                    padding: "11px 15px", marginBottom: 8, display: "flex", gap: 12, alignItems: "flex-start",
+                  }}>
+                    <div style={{ fontSize: 24, lineHeight: 1 }}>{a.emoji || "📚"}</div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14.5 }}>{a.title}</div>
+                      <div style={{ fontSize: 13, color: T.inkSoft }}>{a.blurb}</div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Classic of the month */}
+                {newsDigest.data.classic && (
+                  <div style={{
+                    marginTop: 14, background: "#22334D", color: "#F4EEDD", borderRadius: 12,
+                    padding: "16px 18px",
+                  }}>
+                    <div style={{ fontSize: 11, letterSpacing: "0.14em", fontWeight: 700, opacity: 0.8 }}>CLASSIC OF THE MONTH</div>
+                    <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 21, margin: "2px 0" }}>
+                      {newsDigest.data.classic.title}
+                    </div>
+                    <div style={{ fontSize: 12.5, opacity: 0.85 }}>{newsDigest.data.classic.author}</div>
+                    <div style={{ fontSize: 14, margin: "8px 0 10px" }}>{newsDigest.data.classic.why}</div>
+                    <button style={{ ...btn(T.stamp), fontSize: 13 }}
+                      onClick={() => { setTab("read"); setGutenQuery(newsDigest.data.classic.title); searchGutenberg(newsDigest.data.classic.title); }}>
+                      Read it free in the app 📱
+                    </button>
+                  </div>
+                )}
+
+                {/* Challenge */}
+                {newsDigest.data.challenge && (
+                  <div style={{
+                    marginTop: 12, border: `2px dashed ${T.stamp}`, borderRadius: 12, padding: "13px 16px",
+                    background: "#FDF6EE",
+                  }}>
+                    <div style={{ fontSize: 11, letterSpacing: "0.14em", color: T.stamp, fontWeight: 700 }}>✨ THIS MONTH'S CHALLENGE</div>
+                    <div style={{ fontSize: 14.5, marginTop: 3 }}>{newsDigest.data.challenge}</div>
+                  </div>
+                )}
+
+                <p style={{ fontSize: 11, color: T.inkSoft, marginTop: 14, textAlign: "center" }}>
+                  A new Reading Room arrives every month 🗓️
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         {/* ---------------- REWARDS ---------------- */}
