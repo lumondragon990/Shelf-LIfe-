@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { storage, sharedIsLive } from "./storage";
 import InstallPrompt from "./InstallPrompt";
 
@@ -1009,8 +1009,16 @@ export default function ShelfLife() {
     setRosterLoading(false);
   };
 
+  // Live snapshot of ALL persisted state, refreshed every render — persist()
+  // reads from here so a save can never overwrite fields with stale values.
+  const latestRef = useRef({});
+  latestRef.current = { books, readDays, goalDays, quiz, points, quizResults, classroom, teaching, digitalShelf, myWords, voicePref, newsDigest, quizNudgeDismissed, lastSpotlight, onboarded, userName, role };
+
   const persist = (patch) => {
-    const next = { books, readDays, goalDays, quiz, points, quizResults, classroom, teaching, digitalShelf, myWords, voicePref, onboarded, userName, role, ...patch };
+    const next = { ...latestRef.current, ...patch };
+    if (patch.voicePref2 !== undefined) next.voicePref = patch.voicePref2;
+    next.voicePref2 = next.voicePref; // stored under this key
+    latestRef.current = { ...next }; // rapid back-to-back saves see each other
     setBooks(next.books);
     setReadDays(next.readDays);
     setGoalDays(next.goalDays);
@@ -1623,6 +1631,7 @@ export default function ShelfLife() {
   // ----- Daily spotlight: a little delight when you open the app -----
   useEffect(() => {
     if (!loaded || !onboarded) return;
+    if (tab === "news") return; // never interrupt someone already in the Reading Room
     const today = new Date().toISOString().slice(0, 10);
     if (lastSpotlight === today) return;
     const t = setTimeout(() => {
@@ -2119,7 +2128,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v29</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v30</span>
         </p>
       </header>
 
