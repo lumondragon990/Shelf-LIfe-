@@ -601,6 +601,7 @@ export default function ShelfLife() {
   const [appRated, setAppRated] = useState(false);
   const [freshBooks, setFreshBooks] = useState(null);
   const [freshLoading, setFreshLoading] = useState(false);
+  const [soundCheck, setSoundCheck] = useState(null); // {lines: [...], running}
   const [points, setPoints] = useState(0);
   const [quizResults, setQuizResults] = useState({}); // bookId -> {score, total, passed, at}
   const [bookQuiz, setBookQuiz] = useState(null); // {bookId, title, loading, questions, answers, submitted, score, earned}
@@ -1551,6 +1552,56 @@ export default function ShelfLife() {
     if (earned) { celebrate(); flash("You finished the whole book! +25 pts 🎉"); }
   };
 
+  // ----- Sound check: diagnoses audio on THIS device, results on screen -----
+  const runSoundCheck = () => {
+    const lines = [];
+    const log = (t) => { lines.push(t); setSoundCheck({ running: true, lines: [...lines] }); };
+    setSoundCheck({ running: true, lines: [] });
+
+    // 1) Simple beep through the basic audio system (not text-to-speech)
+    let beepOk = false;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      ctx.resume();
+      log(`Audio system: ${ctx.state === "running" ? "running ✓" : `state = ${ctx.state} ⚠️`}`);
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.25;
+      osc.frequency.value = 523;
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.5);
+      beepOk = true;
+      log("Beep test: played a half-second beep 🎵 (did you hear it?)");
+    } catch (e) {
+      log(`Beep test: FAILED to play (${String(e && e.message ? e.message : e).slice(0, 60)})`);
+    }
+
+    // 2) Voices available to text-to-speech
+    const vs = window.speechSynthesis?.getVoices?.() || [];
+    log(`Voices found: ${vs.length}${vs.length ? " — e.g. " + vs.slice(0, 3).map((v) => v.name).join(", ") : " ⚠️ (none — this browser can't speak)"}`);
+
+    // 3) Speak with the DEFAULT voice and report exactly what the engine does
+    try {
+      const u = new SpeechSynthesisUtterance("Hello! If you can hear me, the reader will work.");
+      u.rate = 0.95;
+      let started = false;
+      u.onstart = () => { started = true; log("Speech engine: STARTED speaking ✓"); };
+      u.onend = () => log(started ? "Speech engine: finished normally ✓ — if you heard nothing, this device is muting the site (check tab mute, volume mixer, Bluetooth)." : "Speech engine: ended without starting ⚠️");
+      u.onerror = (e) => log(`Speech engine: ERROR — ${e.error || "unknown"} ⚠️`);
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(u);
+      setTimeout(() => {
+        if (!started) log("Speech engine: never started within 3s ⚠️ — this browser is blocking speech. Try Chrome or Edge.");
+        setSoundCheck((sc) => sc && { ...sc, running: false });
+      }, 3000);
+    } catch (e) {
+      log(`Speech engine: crashed (${String(e && e.message ? e.message : e).slice(0, 60)})`);
+      setSoundCheck((sc) => sc && { ...sc, running: false });
+    }
+  };
+
   // ----- Fresh on the shelves: new releases matched to the reader's taste -----
   const loadFreshBooks = async () => {
     if (freshBooks || freshLoading) return;
@@ -1899,7 +1950,7 @@ export default function ShelfLife() {
         </div>
         <p style={{ margin: "6px 0 0", color: T.inkSoft, fontSize: 15 }}>
           Track your books, find your next one, and talk about them with other readers. Go at your own pace — this is your shelf, not a race.
-          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v22</span>
+          <span style={{ fontSize: 11, opacity: 0.55, marginLeft: 8 }}>v23</span>
         </p>
       </header>
 
@@ -3881,6 +3932,29 @@ export default function ShelfLife() {
                   </div>
                 </Ruled>
               </div>
+            </div>
+
+            {/* Sound check */}
+            <div style={{ marginTop: 22, background: T.card, border: `1.5px solid ${T.rule}`, borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 18 }}>Sound check 🔊</div>
+              <p style={{ fontSize: 13, color: T.inkSoft, margin: "4px 0 10px" }}>
+                Read-aloud silent? This tests your device's audio and shows exactly what happened.
+              </p>
+              <button style={btn()} onClick={runSoundCheck} disabled={soundCheck?.running}>
+                {soundCheck?.running ? "Testing…" : "Run sound check"}
+              </button>
+              {soundCheck && soundCheck.lines.length > 0 && (
+                <div style={{ marginTop: 10, background: T.paper, border: `1px solid ${T.rule}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, fontFamily: "monospace" }}>
+                  {soundCheck.lines.map((l, i) => (
+                    <div key={i} style={{ marginBottom: 4 }}>{l}</div>
+                  ))}
+                  {!soundCheck.running && (
+                    <div style={{ marginTop: 6, color: T.blue, fontFamily: "'Atkinson Hyperlegible', sans-serif" }}>
+                      📸 Screenshot this box if you need help — it tells the whole story.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Rate Shelf Life */}
